@@ -41,7 +41,7 @@ button{font:inherit}
 .symbol-dalmatian{background-image:url('assets/symbols/dalmatian.png')}
 .symbol-chief{background-image:url('assets/symbols/chief.png')}
 .symbol-bonus-one{background-image:url('assets/symbols/bonus-1.png?v=1');background-size:contain}
-.symbol-bonus-two{background-image:url('assets/symbols/bonus-2-sprite.png?v=1');background-size:700% auto;background-position:0 50%;animation:bonusTwoAlarm .84s steps(1,end) infinite}
+.symbol-bonus-two{background-image:url('assets/symbols/bonus-2-sprite.png?v=2');background-size:700% auto;background-position:0 50%;animation:bonusTwoAlarm .84s steps(1,end) infinite}
 .cell.drop{animation:drop .34s cubic-bezier(.2,.85,.35,1.2)}
 .cell.win{z-index:2;border-color:#ffc55c;filter:brightness(1.28);animation:winPulse .46s ease-in-out 2;box-shadow:0 0 16px rgba(255,164,55,.35),inset 0 0 12px rgba(255,139,44,.2)}
 .cell.pop{animation:pop .25s ease forwards}
@@ -53,7 +53,7 @@ button{font:inherit}
 .bet-control{display:flex;align-items:center;min-width:0;height:58px;border:1px solid rgba(255,184,132,.28);border-radius:11px;background:rgba(12,12,15,.90);overflow:hidden;box-shadow:0 5px 18px rgba(0,0,0,.28)}.bet-control button{width:34%;min-width:28px;height:100%;border:0;background:rgba(255,255,255,.025);color:#fff;font-size:20px;cursor:pointer}.bet-control button:hover{background:rgba(255,255,255,.08)}.bet-control div{flex:1;min-width:0;text-align:center}.bet-control strong{display:block;margin-top:2px}
 .spin-btn{width:100%;height:58px;border:1px solid #ff9a72;border-radius:13px;background:linear-gradient(#ef6244,#ba301f);color:white;cursor:pointer;box-shadow:inset 0 1px 0 rgba(255,255,255,.28),0 6px 20px rgba(72,13,8,.34);font-weight:900;letter-spacing:.1em}.spin-btn span{display:block;font-size:19px}.spin-btn small{display:block;margin-top:2px;font-size:11px;opacity:.86}.spin-btn:disabled{filter:grayscale(.7);opacity:.55;cursor:not-allowed}
 .session-strip{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-top:9px}.session-strip div{padding:8px 10px;border:1px solid #29292d;border-radius:10px;background:#0f0f11}.session-strip strong{display:block;margin-top:2px;font-size:12px}
-.alarm-debug-inline{margin-top:9px;padding:9px;border:1px solid #5b3024;border-radius:11px;background:#120c0b}
+.alarm-debug-inline{margin:0 0 9px;padding:9px;border:1px solid #7b3b29;border-radius:11px;background:#160d0b;box-shadow:0 6px 22px rgba(0,0,0,.28)}
 .alarm-debug-inline-head{display:flex;align-items:end;justify-content:space-between;gap:10px;margin-bottom:7px}
 .alarm-debug-inline-head span{display:block;color:#c98d68;font-size:8px;font-weight:900;letter-spacing:.16em}
 .alarm-debug-inline-head strong{display:block;margin-top:2px;font-size:11px;letter-spacing:.08em}
@@ -79,13 +79,13 @@ button{font:inherit}
 .math-dialog{max-width:650px}.math-cards{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin:12px 0}.math-cards div{padding:10px;border:1px solid #303034;border-radius:10px;background:#0d0d0f}.math-cards strong{display:block;margin-top:4px;font-size:15px}.simulate-btn{width:100%;min-height:44px;border:1px solid #b9633f;border-radius:11px;background:#311711;color:#fff;font-weight:900;cursor:pointer}.simulate-btn:disabled{opacity:.55}.simulation-output{margin-top:9px;padding:10px;border:1px solid #2b2b2f;border-radius:10px;background:#09090a;color:#d6cec7;font-size:12px;line-height:1.5;min-height:43px}.fine-print{font-size:10px;color:#77706b;line-height:1.45}
 code{color:#f0c377}
 @keyframes bonusTwoAlarm{
-  0%,14.2%{background-position:-0.154% 37.09%}
-  14.3%,28.5%{background-position:16.897% 38.19%}
-  28.6%,42.8%{background-position:33.171% 38.92%}
-  42.9%,57.1%{background-position:49.733% 39.43%}
-  57.2%,71.4%{background-position:66.792% 40.54%}
-  71.5%,85.7%{background-position:83.063% 41.18%}
-  85.8%,100%{background-position:100.001% 42.62%}
+  0%,14.2%{background-position:0.3615% 44.9717%}
+  14.3%,28.5%{background-position:16.9508% 45.2231%}
+  28.6%,42.8%{background-position:33.4356% 45.3276%}
+  42.9%,57.1%{background-position:49.9386% 45.3609%}
+  57.2%,71.4%{background-position:66.4796% 45.3808%}
+  71.5%,85.7%{background-position:82.9950% 45.4063%}
+  85.8%,100%{background-position:99.4874% 45.4714%}
 }
 @keyframes drop{0%{transform:translateY(-45%) scale(.92);opacity:.15}100%{transform:none;opacity:1}}@keyframes winPulse{50%{transform:scale(1.055)}}@keyframes pop{to{transform:scale(.25);opacity:0;filter:brightness(1.7)}}@keyframes banner{0%{opacity:0;transform:translate(-50%,-50%) scale(.78)}20%,72%{opacity:1;transform:translate(-50%,-50%) scale(1)}100%{opacity:0;transform:translate(-50%,-50%) scale(1.06)}}
 @media(max-width:680px){.alarm-debug-grid{grid-template-columns:1fr 1fr}.alarm-debug-inline-buttons{grid-template-columns:1fr 1fr}.app{padding:9px 9px 26px}.brand h1{font-size:25px}.small-btn{height:34px;padding:0 8px}.machine{padding:5px}.board-frame{left:18%;top:29.3%;width:64%;padding:3px}.board{gap:3px}.cell{border-radius:7px}.firehouse-stage>.controls{left:1.5%;right:1.5%;bottom:1%;grid-template-columns:1.05fr .9fr 1.08fr 1fr;gap:3px}.readout{min-height:44px;padding:5px 6px;border-radius:8px}.readout span,.bet-control span{font-size:6px;letter-spacing:.08em}.readout strong{font-size:11px;margin-top:2px}.bet-control{height:44px;border-radius:8px}.bet-control button{min-width:20px;font-size:15px}.bet-control strong{font-size:11px}.spin-btn{height:44px;border-radius:9px}.spin-btn span{font-size:14px}.spin-btn small{font-size:8px}.session-strip{grid-template-columns:1fr 1fr}.rule-grid,.math-cards{grid-template-columns:1fr 1fr}.status-line{font-size:8px}.symbol-sprite{width:96%;height:96%}}
