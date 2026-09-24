@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <meta name="theme-color" content="#0c0c0d" />
   <title>Firehouse</title>
-  <link rel="stylesheet" href="styles.css?v=bonus-symbol-1" />
+  <link rel="stylesheet" href="styles.css?v=alarm-debug-1" />
 </head>
 <body>
   <main class="app" id="app">
@@ -17,6 +17,7 @@
       <div class="header-actions">
         <button class="small-btn" id="paytableBtn" type="button">PAYTABLE</button>
         <button class="small-btn" id="mathBtn" type="button">MATH</button>
+        <button class="small-btn debug-header-btn" id="debugBtn" type="button">DEBUG</button>
       </div>
     </header>
 
@@ -110,6 +111,45 @@
     <p class="fine-print">Prototype calibration only. A real-money release would require formal mathematical analysis, jurisdiction-specific testing, and independent certification.</p>
   </dialog>
 
-  <script src="game.js?v=bonus-symbol-1"></script>
+  <dialog id="debugDialog" class="dialog-shell debug-dialog">
+    <div class="dialog-head">
+      <div>
+        <span>DEVELOPMENT TOOLS</span>
+        <h2>Alarm Debug</h2>
+      </div>
+      <button class="dialog-close" id="debugClose" type="button" aria-label="Close debug menu">×</button>
+    </div>
+
+    <p class="dialog-copy">Force the board into a specific alarm-count state without changing balance, spin count, wagered, or session RTP.</p>
+
+    <div class="debug-status">
+      <span>VISIBLE ALARMS</span>
+      <strong id="debugAlarmCount">0</strong>
+      <small id="debugAlarmState">OFF STATE</small>
+    </div>
+
+    <div class="alarm-debug-grid">
+      <button class="alarm-debug-btn" data-alarm-count="1" type="button">
+        <strong>1 ALARM</strong>
+        <span>Static / off</span>
+      </button>
+      <button class="alarm-debug-btn" data-alarm-count="2" type="button">
+        <strong>2 ALARMS</strong>
+        <span>Animated sprite</span>
+      </button>
+      <button class="alarm-debug-btn" data-alarm-count="3" type="button">
+        <strong>3+ ALARMS</strong>
+        <span>Current placeholder</span>
+      </button>
+      <button class="alarm-debug-btn clear" data-alarm-count="0" type="button">
+        <strong>CLEAR</strong>
+        <span>No alarms</span>
+      </button>
+    </div>
+
+    <p class="fine-print">Debug placement is visual-only. It does not award a bonus or alter the production RNG math.</p>
+  </dialog>
+
+  <script src="game.js?v=alarm-debug-1"></script>
 </body>
 </html>

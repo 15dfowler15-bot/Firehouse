@@ -65,7 +65,12 @@
     mathDialog: $('mathDialog'),
     mathClose: $('mathClose'),
     simulateBtn: $('simulateBtn'),
-    simulationOutput: $('simulationOutput')
+    simulationOutput: $('simulationOutput'),
+    debugBtn: $('debugBtn'),
+    debugDialog: $('debugDialog'),
+    debugClose: $('debugClose'),
+    debugAlarmCount: $('debugAlarmCount'),
+    debugAlarmState: $('debugAlarmState')
   };
 
   const state = {
@@ -211,9 +216,20 @@
     return `<span class="symbol-sprite symbol-${key}" role="img" aria-label="${label}"></span>`;
   }
 
+  function updateAlarmDebugStatus(bonusCount) {
+    if (!el.debugAlarmCount || !el.debugAlarmState) return;
+    el.debugAlarmCount.textContent = bonusCount;
+    el.debugAlarmState.textContent =
+      bonusCount === 0 ? 'NO ALARMS' :
+      bonusCount === 1 ? 'STATIC / OFF STATE' :
+      bonusCount === 2 ? '2-HIT ANIMATION' :
+      '3+ PLACEHOLDER';
+  }
+
   function renderBoard(spawned = [], animate = false) {
     const spawnedSet = new Set(spawned);
     const bonusCount = state.board.reduce((count, key) => count + (key === BONUS_KEY ? 1 : 0), 0);
+    updateAlarmDebugStatus(bonusCount);
     el.board.innerHTML = state.board.map((key, index) => {
       const symbol = SYMBOLS.find(item => item.key === key);
       const classes = ['cell'];
@@ -222,6 +238,29 @@
       if (animate && spawnedSet.has(index)) classes.push('drop');
       return `<div class="${classes.join(' ')}" data-index="${index}" role="gridcell" aria-label="${symbol?.label || key}">${spriteMarkup(key, symbol?.label || key, bonusCount)}</div>`;
     }).join('');
+  }
+
+  function setDebugAlarmCount(count) {
+    if (state.busy) return;
+
+    const cleanBoard = createInitialBoard().map(key => key === BONUS_KEY ? 'helmet' : key);
+    const placements = [16, 24, 32];
+
+    for (let index = 0; index < Math.min(count, placements.length); index++) {
+      cleanBoard[placements[index]] = BONUS_KEY;
+    }
+
+    state.board = cleanBoard;
+    renderBoard();
+
+    const label =
+      count === 0 ? 'NO ALARMS' :
+      count === 1 ? '1 ALARM · STATIC' :
+      count === 2 ? '2 ALARMS · ANIMATED' :
+      '3 ALARMS · PLACEHOLDER';
+
+    setMessage(`DEBUG · ${label}`, 'VISUAL TEST');
+    el.debugDialog?.close();
   }
 
   function showBanner(text) {
@@ -378,6 +417,14 @@
   el.mathBtn.addEventListener('click', () => el.mathDialog.showModal());
   el.mathClose.addEventListener('click', () => el.mathDialog.close());
   el.simulateBtn.addEventListener('click', runSimulation);
+  el.debugBtn.addEventListener('click', () => {
+    updateAlarmDebugStatus(state.board.filter(key => key === BONUS_KEY).length);
+    el.debugDialog.showModal();
+  });
+  el.debugClose.addEventListener('click', () => el.debugDialog.close());
+  document.querySelectorAll('[data-alarm-count]').forEach(button => {
+    button.addEventListener('click', () => setDebugAlarmCount(Number(button.dataset.alarmCount)));
+  });
 
   renderPaytable();
   state.board = createInitialBoard();
