@@ -21,13 +21,15 @@
   };
   FH.PAYING = ['gloves','boots','radio','nozzle','helmet','dog','chief'];
   FH.LOWS = new Set(['gloves','boots','radio']);
-  FH.PROFILES = {
-    88:{target:88,payoutScale:88/96,premiumFactor:.91,wildFactor:.88,alarmFactor:.86,featureFactor:.82},
-    92:{target:92,payoutScale:92/96,premiumFactor:.96,wildFactor:.94,alarmFactor:.93,featureFactor:.92},
-    94:{target:94,payoutScale:94/96,premiumFactor:.98,wildFactor:.97,alarmFactor:.97,featureFactor:.96},
-    96:{target:96,payoutScale:1,premiumFactor:1,wildFactor:1,alarmFactor:1,featureFactor:1},
-    98:{target:98,payoutScale:98/96,premiumFactor:1.035,wildFactor:1.04,alarmFactor:1.04,featureFactor:1.05}
-  };
+  FH.RTP_CALIBRATION = 1.49725;
+  FH.PROFILES = Object.fromEntries([88,92,94,96,98].map(target => [target,{
+    target,
+    payoutScale: FH.RTP_CALIBRATION * target / 96,
+    premiumFactor: 1,
+    wildFactor: 1,
+    alarmFactor: 1,
+    featureFactor: 1
+  }]));
   FH.FEATURE_CHANCES = {firetruck:.017,axe:.014,hose:.011,backdraft:.0045};
   FH.state = {board:[],fires:Array(20).fill(0),credits:1000,betIndex:2,busy:false,bonus:null,currentProfile:FH.PROFILES[96],spinId:0,stats:{spins:0,wagered:0,won:0},lastTelemetry:null};
 
