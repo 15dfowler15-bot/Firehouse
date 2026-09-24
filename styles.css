@@ -24,6 +24,7 @@ button{font:inherit}
 .machine{border:1px solid #4a2c26;border-radius:18px;background:#0e0e10;padding:8px;box-shadow:0 20px 70px rgba(0,0,0,.45),inset 0 0 30px rgba(125,36,21,.08)}
 .firehouse-stage{position:relative;width:100%;aspect-ratio:5/6;overflow:hidden;border:1px solid #4b302b;border-radius:15px;background:#09090a}
 .firehouse-backdrop{position:absolute;inset:0;z-index:0;width:100%;height:100%;display:block;object-fit:fill;pointer-events:none;user-select:none}
+.firehouse-title-art{position:absolute;z-index:3;left:16%;top:7.2%;width:68%;height:auto;display:block;object-fit:contain;pointer-events:none;user-select:none;filter:drop-shadow(0 7px 8px rgba(0,0,0,.5))}
 .logo-safe-area{position:absolute;z-index:1;left:13.75%;top:3.65%;width:72.5%;height:13.55%;pointer-events:none}
 .board-frame{position:absolute;z-index:2;left:18%;top:29.3%;width:64%;aspect-ratio:1/1;overflow:hidden;border:0;border-radius:3%;background:rgba(8,8,9,.16);padding:1%;box-shadow:none}
 .board{display:grid;width:100%;height:100%;grid-template-columns:repeat(7,minmax(0,1fr));gap:5px;aspect-ratio:1/1}
@@ -41,7 +42,7 @@ button{font:inherit}
 .symbol-dalmatian{background-image:url('assets/symbols/dalmatian.png')}
 .symbol-chief{background-image:url('assets/symbols/chief.png')}
 .symbol-bonus-one{background-image:url('assets/symbols/bonus-1.png?v=1');background-size:contain}
-.symbol-bonus-two{background-image:url('assets/symbols/bonus-2-sprite.png?v=2');background-size:700% auto;background-position:0 50%;animation:bonusTwoAlarm .84s steps(1,end) infinite}
+.symbol-bonus-two{background-image:url('assets/symbols/bonus-2-sprite.png?v=2');background-size:700% auto;background-position:0 50%;animation:bonusTwoAlarm .84s steps(1,end) infinite alternate}
 .cell.drop{animation:drop .34s cubic-bezier(.2,.85,.35,1.2)}
 .cell.win{z-index:2;border-color:#ffc55c;filter:brightness(1.28);animation:winPulse .46s ease-in-out 2;box-shadow:0 0 16px rgba(255,164,55,.35),inset 0 0 12px rgba(255,139,44,.2)}
 .cell.pop{animation:pop .25s ease forwards}
