@@ -276,7 +276,17 @@
     const prefersReducedMotion = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
     if (prefersReducedMotion || !Element.prototype.animate) return;
 
-    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const movingCells = [];
+
+    // Hide every tile that will move BEFORE the browser gets a chance to paint
+    // the freshly-rendered board at its final positions.
+    for (const [index, move] of movements.entries()) {
+      if (move.rows <= 0) continue;
+      const cell = el.board.querySelector(`[data-index="${index}"]`);
+      if (!cell) continue;
+      cell.style.visibility = 'hidden';
+      movingCells.push({ cell, move });
+    }
 
     const firstCell = el.board.querySelector('.cell');
     if (!firstCell) return;
@@ -286,22 +296,32 @@
     const pitch = firstCell.getBoundingClientRect().height + gap;
 
     const activeColumns = [...new Set(
-      [...movements.values()]
-        .filter(move => move.rows > 0)
-        .map(move => move.col)
+      movingCells.map(({ move }) => move.col)
     )].sort((a, b) => a - b);
 
     const columnRank = new Map(activeColumns.map((col, rank) => [col, rank]));
     const columnStagger = 72;
     const fallDuration = 390;
+
+    // Put tiles at their true starting positions while they are still hidden.
+    for (const { cell, move } of movingCells) {
+      const startY = -move.rows * pitch;
+      cell.style.transform = `translate3d(0, ${startY}px, 0)`;
+      cell.style.willChange = 'transform';
+    }
+
+    // Commit the off-board starting positions, then reveal them there.
+    // This prevents the one-frame flash at the destination cells.
+    void el.board.offsetHeight;
+    for (const { cell } of movingCells) {
+      cell.style.visibility = 'visible';
+    }
+
+    await new Promise(resolve => requestAnimationFrame(resolve));
+
     const animations = [];
 
-    for (const [index, move] of movements.entries()) {
-      if (move.rows <= 0) continue;
-
-      const cell = el.board.querySelector(`[data-index="${index}"]`);
-      if (!cell) continue;
-
+    for (const { cell, move } of movingCells) {
       const startY = -move.rows * pitch;
       const delay = (columnRank.get(move.col) || 0) * columnStagger;
 
@@ -313,10 +333,17 @@
         duration: fallDuration,
         delay,
         easing: 'cubic-bezier(.18,.72,.22,1)',
-        fill: 'backwards'
+        fill: 'both'
       });
 
-      animations.push(animation.finished.catch(() => {}));
+      animations.push(
+        animation.finished
+          .catch(() => {})
+          .then(() => {
+            cell.style.transform = '';
+            cell.style.willChange = '';
+          })
+      );
     }
 
     if (animations.length) {
