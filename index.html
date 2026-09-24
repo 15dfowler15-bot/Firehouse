@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="theme-color" content="#130c0a" />
+  <title>Firehouse</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="app-shell" id="app">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">🔥</div>
+        <div>
+          <h1>FIREHOUSE</h1>
+          <p>Cascade Response</p>
+        </div>
+      </div>
+      <div class="top-actions">
+        <button class="icon-btn" id="paytableBtn" type="button" aria-label="Open paytable">ⓘ</button>
+        <button class="icon-btn dev-toggle" id="devToggle" type="button" aria-label="Open developer menu">DEV</button>
+      </div>
+    </header>
+
+    <section class="status-strip" aria-label="Game status">
+      <div><span>MODE</span><strong id="modeLabel">BASE GAME</strong></div>
+      <div><span>PROFILE</span><strong id="profileLabel">96.0%</strong></div>
+      <div><span>LAST WIN</span><strong id="lastWin">0.00×</strong></div>
+      <div><span>CASCADE</span><strong id="cascadeLabel">—</strong></div>
+    </section>
+
+    <section class="machine">
+      <div class="alarm-rail" id="alarmRail" aria-label="Alarm progress">
+        <span>ALARM RESPONSE</span>
+        <div class="alarm-dots" aria-hidden="true">
+          <i></i><i></i><i></i><i></i><i></i>
+        </div>
+      </div>
+
+      <div class="board-wrap" id="boardWrap">
+        <div class="board-glow" aria-hidden="true"></div>
+        <div id="board" class="board" role="grid" aria-label="Firehouse slot grid"></div>
+        <div class="board-overlay" id="boardOverlay" aria-hidden="true"></div>
+        <div class="feature-banner" id="featureBanner" aria-live="polite"></div>
+      </div>
+
+      <div class="message" id="message" aria-live="polite">READY FOR RESPONSE</div>
+
+      <div class="bonus-meter" id="bonusMeter" hidden>
+        <div><span id="bonusName">3-ALARM FIRE</span><strong id="bonusSpins">8</strong></div>
+        <div class="meter-track"><div id="meterFill"></div></div>
+      </div>
+    </section>
+
+    <section class="controls" aria-label="Game controls">
+      <div class="credit-block">
+        <span>CREDITS</span><strong id="credits">1000.00</strong>
+      </div>
+      <div class="bet-control">
+        <button id="betDown" type="button" aria-label="Decrease bet">−</button>
+        <div><span>BET</span><strong id="bet">1.00</strong></div>
+        <button id="betUp" type="button" aria-label="Increase bet">+</button>
+      </div>
+      <button class="spin-btn" id="spinBtn" type="button">
+        <span>SPIN</span><small id="spinSub">$1.00</small>
+      </button>
+    </section>
+
+    <section class="session-stats" aria-label="Session statistics">
+      <div><span>Spins</span><strong id="statSpins">0</strong></div>
+      <div><span>Wagered</span><strong id="statWagered">0.00</strong></div>
+      <div><span>Won</span><strong id="statWon">0.00</strong></div>
+      <div><span>Session RTP</span><strong id="statRtp">—</strong></div>
+    </section>
+
+    <aside class="dev-panel" id="devPanel" aria-hidden="true">
+      <div class="dev-head">
+        <div>
+          <span>DEVELOPER CONTROL</span>
+          <h2>Arm Next Spin</h2>
+        </div>
+        <button id="devClose" class="icon-btn" type="button" aria-label="Close developer menu">×</button>
+      </div>
+      <p class="dev-note">Overrides are consumed by exactly one paid spin, then automatically reset. All forced features still run through the production evaluator and cascade engine.</p>
+
+      <label class="field">
+        <span>RTP math profile</span>
+        <select id="devRtp">
+          <option value="88">88.0%</option>
+          <option value="92">92.0%</option>
+          <option value="94">94.0%</option>
+          <option value="96" selected>96.0%</option>
+          <option value="98">98.0%</option>
+        </select>
+      </label>
+
+      <label class="field">
+        <span>Force bonus</span>
+        <select id="devBonus">
+          <option value="0">None</option>
+          <option value="3">3-Alarm · 8 free spins</option>
+          <option value="4">4-Alarm · 10 free spins</option>
+          <option value="5">5-Alarm · 12 free spins</option>
+        </select>
+      </label>
+
+      <fieldset class="feature-checks">
+        <legend>Force base features</legend>
+        <label><input type="checkbox" value="firetruck" /> 🚒 Firetruck Wild Drop</label>
+        <label><input type="checkbox" value="axe" /> 🪓 Fire Axe</label>
+        <label><input type="checkbox" value="hose" /> 💦 Hose Blast</label>
+        <label><input type="checkbox" value="backdraft" /> 🔥 Backdraft</label>
+      </fieldset>
+
+      <div class="dev-grid">
+        <label class="field">
+          <span>Forced Firestarters</span>
+          <input id="devFirestarters" type="number" min="0" max="8" value="0" inputmode="numeric" />
+        </label>
+        <label class="field">
+          <span>Seed label</span>
+          <input id="devSeed" type="text" maxlength="20" placeholder="optional tag" />
+        </label>
+      </div>
+
+      <div class="armed-box" id="armedBox">
+        <strong>Not armed</strong>
+        <span>Normal RNG will be used.</span>
+      </div>
+
+      <div class="dev-actions">
+        <button class="secondary-btn" id="simBtn" type="button">Sim 10,000 Spins</button>
+        <button class="arm-btn" id="armBtn" type="button">ARM NEXT SPIN</button>
+      </div>
+      <div class="sim-output" id="simOutput" aria-live="polite"></div>
+
+      <details class="telemetry">
+        <summary>Last spin telemetry</summary>
+        <pre id="telemetry">No spin recorded yet.</pre>
+      </details>
+    </aside>
+
+    <dialog id="paytableDialog" class="paytable-dialog">
+      <form method="dialog">
+        <div class="dialog-head">
+          <div><span>FIREHOUSE</span><h2>Paytable & Rules</h2></div>
+          <button class="icon-btn" value="cancel" aria-label="Close paytable">×</button>
+        </div>
+        <div id="paytableContent"></div>
+      </form>
+    </dialog>
+  </main>
+  <script src="game.js"></script>
+</body>
+</html>
