@@ -63,3 +63,24 @@ Then open `http://localhost:8080`.
 ## Archived version
 
 The earlier feature-heavy prototype is preserved on the `archive/v0.1-full-features` branch.
+
+
+## Background artwork layout contract
+
+The playable area is now a responsive **5:6 stage** so a firehouse facade can sit behind the board.
+
+Recommended master background asset: **1600 × 1920 px**.
+
+At that exact master size:
+
+- Stage: x 0–1600, y 0–1920.
+- Board outer frame: **x 96, y 442, width 1408, height 1408**.
+- Board side margins: 96 px each.
+- Board bottom margin: about 70 px.
+- Reserved logo/sign safe area: **x 220–1380, y 70–330**.
+- Keep the building centered on x = 800.
+- Put the main FIREHOUSE sign/logo in the reserved safe area above the board.
+- The firehouse bay/doors can continue behind the board; the central area from y ≈ 442 down will mostly be obscured by the game grid.
+- The background should extend fully to all four edges. Do not bake the 7×7 board frame into the artwork.
+
+The browser scales the entire 1600×1920 composition proportionally, so these coordinates remain aligned on desktop and mobile.
