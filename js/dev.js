@@ -14,12 +14,64 @@
   function fastSpin(profile){
     let board=F.makeBoard(profile,{allowAlarm:true}),fires=Array(F.CELLS).fill(0),x=0,guard=0;
     const locked=F.alarmCount(board),features=F.chooseFeature(profile);
-    if(features.includes('firetruck')){let n=F.randInt(2,5),a=[...Array(F.CELLS).keys()].filter(i=>board[i]!=='alarm');while(n--&&a.length)board[a.splice(Math.floor(F.rng()*a.length),1)[0]]='wild';}
-    if(features.includes('axe')){const low=board.map((s,i)=>F.LOWS.has(s)?i:-1).filter(i=>i>=0).slice(0,F.randInt(3,6));board=F.cascadeBoard(board,low,profile,{allowAlarm:false}).board;}
-    if(features.includes('hose')){const row=F.randInt(0,F.ROWS-1),clear=Array.from({length:F.COLS},(_,c)=>row*F.COLS+c);board=F.cascadeBoard(board,clear,profile,{allowAlarm:false}).board;}
-    if(features.includes('backdraft')){let n=F.randInt(3,5),a=[...Array(F.CELLS).keys()];while(n--&&a.length)fires[a.splice(Math.floor(F.rng()*a.length),1)[0]]=2;}
-    while(guard++<25){const ev=F.evaluate(board,fires,profile);if(!ev.wins.length)break;x+=ev.total;board=F.cascadeBoard(board,ev.remove,profile,{allowAlarm:false,allowFirestarter:features.includes('backdraft')}).board;}
-    if(locked>=3){const tier=Math.min(5,locked),spins=tier===3?8:tier===4?10:12,persist=tier===5;let bf=Array(F.CELLS).fill(0);for(let s=0;s<spins;s++){if(!persist)bf.fill(0);let b=F.makeBoard(profile,{allowAlarm:false,allowFirestarter:true});for(let i=0;i<F.CELLS;i++)if(b[i]==='firestarter'){bf[i]=bf[i]||(tier===4?3:2);b[i]=F.newSymbol(profile,{allowAlarm:false});}let g=0;while(g++<25){const ev=F.evaluate(b,bf,profile);if(!ev.wins.length)break;x+=ev.total;for(const i of ev.wins.flatMap(w=>w.burning)){const lv=tier===4?F.FIRE_LEVELS_4:F.FIRE_LEVELS,p=lv.indexOf(bf[i]);bf[i]=lv[Math.min(lv.length-1,Math.max(0,p)+1)];}b=F.cascadeBoard(b,ev.remove,profile,{allowAlarm:false,allowFirestarter:true}).board;}}}
+    const localUpgrade=(arr,i,tier=3)=>{
+      const lv=tier===4?F.FIRE_LEVELS_4:F.FIRE_LEVELS,cur=arr[i];
+      if(!cur){arr[i]=lv[0];return;}
+      const p=Math.max(0,lv.indexOf(cur));arr[i]=lv[Math.min(lv.length-1,p+1)];
+    };
+    const localResolve=(b,arr,tier=3)=>{
+      b.forEach((s,i)=>{if(s==='firestarter'){localUpgrade(arr,i,tier);b[i]=F.newSymbol(profile,{allowAlarm:false});}});
+    };
+    const localSpread=(arr,positions,tier=3)=>{
+      const candidates=new Set();
+      for(const i of positions){
+        const r=Math.floor(i/F.COLS),c=i%F.COLS;
+        [[r-1,c],[r+1,c],[r,c-1],[r,c+1]].forEach(([rr,cc])=>{
+          if(rr>=0&&rr<F.ROWS&&cc>=0&&cc<F.COLS){const p=rr*F.COLS+cc;if(!arr[p])candidates.add(p);}
+        });
+      }
+      if(candidates.size&&F.rng()<.42){const i=F.pick([...candidates]);arr[i]=(tier===4?F.FIRE_LEVELS_4:F.FIRE_LEVELS)[0];}
+    };
+    if(features.includes('firetruck')){
+      let n=F.randInt(2,5),a=[...Array(F.CELLS).keys()].filter(i=>board[i]!=='alarm');
+      while(n--&&a.length)board[a.splice(Math.floor(F.rng()*a.length),1)[0]]='wild';
+    }
+    if(features.includes('axe')){
+      const low=board.map((s,i)=>F.LOWS.has(s)?i:-1).filter(i=>i>=0).slice(0,F.randInt(3,6));
+      board=F.cascadeBoard(board,low,profile,{allowAlarm:false}).board;
+    }
+    if(features.includes('hose')){
+      const row=F.randInt(0,F.ROWS-1),clear=Array.from({length:F.COLS},(_,c)=>row*F.COLS+c).filter(i=>board[i]!=='alarm');
+      board=F.cascadeBoard(board,clear,profile,{allowAlarm:false}).board;
+    }
+    if(features.includes('backdraft')){
+      let n=F.randInt(3,5),a=[...Array(F.CELLS).keys()];
+      while(n--&&a.length)fires[a.splice(Math.floor(F.rng()*a.length),1)[0]]=F.FIRE_LEVELS[0];
+    }
+    while(guard++<25){
+      if(features.includes('backdraft'))localResolve(board,fires,3);
+      const ev=F.evaluate(board,fires,profile);if(!ev.wins.length)break;x+=ev.total;
+      if(features.includes('backdraft')){
+        const burning=[...new Set(ev.wins.flatMap(w=>w.burning))];
+        burning.forEach(i=>localUpgrade(fires,i,3));localSpread(fires,burning,3);
+      }
+      board=F.cascadeBoard(board,ev.remove,profile,{allowAlarm:false,allowFirestarter:features.includes('backdraft')}).board;
+    }
+    if(locked>=3){
+      const tier=Math.min(5,locked),spins=tier===3?8:tier===4?10:12,persist=tier===5;
+      let bf=Array(F.CELLS).fill(0);
+      for(let s=0;s<spins;s++){
+        if(!persist)bf.fill(0);
+        let b=F.makeBoard(profile,{allowAlarm:false,allowFirestarter:true}),g=0;
+        while(g++<25){
+          localResolve(b,bf,tier);
+          const ev=F.evaluate(b,bf,profile);if(!ev.wins.length)break;x+=ev.total;
+          const burning=[...new Set(ev.wins.flatMap(w=>w.burning))];
+          burning.forEach(i=>localUpgrade(bf,i,tier));localSpread(bf,burning,tier);
+          b=F.cascadeBoard(b,ev.remove,profile,{allowAlarm:false,allowFirestarter:true}).board;
+        }
+      }
+    }
     return x;
   }
   async function simulate(){if(F.state.busy)return;const profile=F.PROFILES[+el.rtp.value||F.DEFAULT_RTP];el.sim.disabled=true;el.out.textContent='Running 10,000 development spins…';await F.sleep(20);let total=0,wins=0,max=0,N=10000;for(let i=0;i<N;i++){const x=fastSpin(profile);total+=x;if(x>0)wins++;max=Math.max(max,x);if(i%2000===0)await F.sleep(0);}el.out.innerHTML=`Profile <b>${profile.target}%</b> · observed RTP <b>${(100*total/N).toFixed(2)}%</b> · hit rate <b>${(100*wins/N).toFixed(1)}%</b> · max <b>${max.toFixed(1)}×</b><br><span style="opacity:.72">Monte Carlo sample only; not a certification result.</span>`;el.sim.disabled=false;}
