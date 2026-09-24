@@ -51,4 +51,4 @@ Then open `http://localhost:8080`.
 
 ## Architecture
 
-`index.html` contains the accessible UI shell, `styles.css` contains responsive presentation and animation rules, and `game.js` owns RNG, math profiles, symbol generation, win evaluation, cascades, fire state, bonuses, boosters, DEV arming, simulation, and telemetry.
+`index.html` contains the accessible UI shell and `styles.css` contains responsive presentation/animation rules. `js/core.js` owns RNG, math profiles, symbol generation, win evaluation, cascades, and fire rules; `js/dev.js` owns one-shot DEV arming, telemetry, the paytable, and Monte Carlo tooling; `js/game.js` owns the live spin/bonus runtime, boosters, board state, and animations.
