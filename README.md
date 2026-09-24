@@ -31,13 +31,13 @@ The DEV panel can arm **exactly one next paid spin** with:
 - 0–8 forced Firestarters.
 - Optional seed label for telemetry.
 
-Overrides are consumed when the next spin begins and all DEV inputs reset immediately. Forced events still pass through the same production feature, cascade, fire, and payout evaluators.
+Overrides are locked when the next paid spin begins, remain active for that complete spin/bonus sequence, and reset automatically only after the spin is complete. Forced events still pass through the same production feature, cascade, fire, and payout evaluators.
 
 The menu also includes a 10,000-spin Monte Carlo development tester. Its result is a sample estimate, **not** a certified theoretical RTP calculation.
 
 ## RTP model note
 
-This repository is a game-development prototype, not certified gambling software. RTP selections currently act as development math profiles by adjusting payout scale, premium/wild/alarm frequency factors, and booster frequency around the 96% baseline profile. These profiles must be calibrated with much larger simulations and independently validated before any real-money or regulated use.
+This repository is a game-development prototype, not certified gambling software. RTP selections currently act as development math profiles. The current prototype keeps symbol and feature frequencies constant across profiles and scales the paytable from a Monte Carlo-calibrated 96% baseline; the built-in simulator is used as a regression check. These values are development targets, not independently certified theoretical RTP values, and would require much larger simulation plus formal math/RNG validation before any real-money or regulated use.
 
 ## Run locally
 
