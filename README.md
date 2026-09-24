@@ -1,47 +1,58 @@
-# Firehouse — Cascade Response
+# Firehouse — Base Game
 
-A playable browser prototype for the **Firehouse** cascading slot concept.
+Firehouse is currently intentionally stripped down to the core game loop so the base math can be tuned before any bonus features or fire multipliers are added.
 
-## Current build
+## Current rules
 
-- 5×4 pay-anywhere cascading grid; 6+ matching symbols pay.
-- Seven paying symbols plus Wild, Alarm, and Firestarter.
-- Weighted cryptographic RNG wrapper for all money-affecting game selections when `crypto.getRandomValues` is available.
-- Separate cosmetic randomness path.
-- Cascades, shared Wild evaluation, additive burning-tile multipliers, fire growth, and adjacent fire spread.
-- Base boosters:
-  - 🚒 **Firetruck** — injects 2–5 Wilds.
-  - 🪓 **Fire Axe** — removes low symbols and refills.
-  - 💦 **Hose Blast** — clears a random row and refills.
-  - 🔥 **Backdraft** — ignites temporary base-game fire and enables Firestarters.
-- Alarm bonuses:
-  - **3 Alarm:** 8 free spins; fire resets each free spin.
-  - **4 Alarm:** 10 free spins; hotter multiplier ladder; fire resets each free spin.
-  - **5 Alarm:** 12 free spins; fire persists for the entire bonus.
-- CSS/DOM animation layer for cascades, wins, Firetruck, Axe, Hose, Backdraft, alarms, fire, bonus banners, and screen shake.
-- Session credits, bets, RTP readout, and spin telemetry.
+- 7×7 grid.
+- Cluster pays: **8 or more matching symbols must touch horizontally or vertically**.
+- Winning clusters disappear simultaneously.
+- Symbols fall vertically and RNG replacements enter from the top.
+- Cascades continue until the board has no qualifying cluster.
+- Wild substitutes for any paying symbol and may connect a cluster. Wild-only groups do not pay.
+- No free spins, fire multipliers, boosters, alarm bonus, or other features in this version.
 
-## Developer menu
+## Symbols and paytable
 
-The DEV panel can arm **exactly one next paid spin** with:
+Pays are multiples of total bet.
 
-- RTP development profile: 88 / 92 / 94 / 96 / 98.
-- Forced 3-, 4-, or 5-Alarm bonus.
-- Any combination of Firetruck, Fire Axe, Hose Blast, and Backdraft.
-- 0–8 forced Firestarters.
-- Optional seed label for telemetry.
+| Symbol | 8–9 | 10–11 | 12–14 | 15–19 | 20–24 | 25+ |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Fire Extinguisher | 0.10× | 0.15× | 0.25× | 0.40× | 0.75× | 1.50× |
+| Fire Helmet | 0.12× | 0.20× | 0.30× | 0.50× | 1.00× | 2.00× |
+| Fire Axe | 0.15× | 0.25× | 0.40× | 0.65× | 1.25× | 2.50× |
+| Fire Hydrant | 0.20× | 0.30× | 0.50× | 0.80× | 1.50× | 3.00× |
+| Turnout Suit | 0.25× | 0.40× | 0.65× | 1.00× | 2.00× | 4.00× |
+| Fire Radio | 0.30× | 0.50× | 0.80× | 1.25× | 2.50× | 5.00× |
+| Dalmatian | 0.50× | 0.75× | 1.25× | 2.00× | 4.00× | 8.00× |
+| Chief Badge | 0.75× | 1.25× | 2.00× | 3.50× | 7.00× | 15.00× |
+| Wild | substitutes | substitutes | substitutes | substitutes | substitutes | substitutes |
 
-Overrides are locked when the next paid spin begins, remain active for that complete spin/bonus sequence, and reset automatically only after the spin is complete. Forced events still pass through the same production feature, cascade, fire, and payout evaluators.
+## RNG and RTP model
 
-The menu also includes a 10,000-spin Monte Carlo development tester. Its result is a sample estimate, **not** a certified theoretical RTP calculation.
+All money-affecting random calls use `crypto.getRandomValues()` when the browser provides it, with `Math.random()` only as a non-secure fallback for unsupported environments.
 
-## RTP model note
+The symbol generator uses weighted symbols plus a calibrated **54.78% neighbor-clump probability**. This deliberately creates connected patches; independent 7×7 cell draws with nine symbols make 8+ orthogonal clusters far too rare for the intentionally small paytable.
 
-This repository is a game-development prototype, not certified gambling software. RTP selections currently act as development math profiles. The current prototype keeps symbol and feature frequencies constant across profiles and scales the paytable from a Monte Carlo-calibrated 96% baseline; the built-in simulator is used as a regression check. These values are development targets, not independently certified theoretical RTP values, and would require much larger simulation plus formal math/RNG validation before any real-money or regulated use.
+Current base weights:
+
+- Fire Extinguisher: 20
+- Fire Helmet: 18
+- Fire Axe: 16
+- Fire Hydrant: 14
+- Turnout Suit: 12
+- Fire Radio: 10
+- Dalmatian: 7
+- Chief Badge: 5
+- Wild: 1.4
+
+A 100,000-spin development simulation of the current algorithm measured approximately **95.94% RTP**, with normal Monte Carlo variance around the 96% target. The in-game Math panel can run a fresh 20,000-spin sample using the exact same evaluator and cascade logic.
+
+This is prototype math, not certified gambling software. Regulated deployment would require formal theoretical analysis and jurisdiction-specific independent testing.
 
 ## Run locally
 
-No build step is required. Serve the repository with any static web server, for example:
+No build step is required.
 
 ```bash
 python -m http.server 8080
@@ -49,6 +60,6 @@ python -m http.server 8080
 
 Then open `http://localhost:8080`.
 
-## Architecture
+## Archived version
 
-`index.html` contains the accessible UI shell and `styles.css` contains responsive presentation/animation rules. `js/core.js` owns RNG, math profiles, symbol generation, win evaluation, cascades, and fire rules; `js/dev.js` owns one-shot DEV arming, telemetry, the paytable, and Monte Carlo tooling; `js/game.js` owns the live spin/bonus runtime, boosters, board state, and animations.
+The earlier feature-heavy prototype is preserved on the `archive/v0.1-full-features` branch.
