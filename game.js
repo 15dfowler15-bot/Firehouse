@@ -30,11 +30,14 @@
     { key: 'radio', label: 'Fire Radio', weight: 10, pays: [0.30, 0.50, 0.80, 1.25, 2.50, 5.00] },
     { key: 'dalmatian', label: 'Dalmatian', weight: 7, pays: [0.50, 0.75, 1.25, 2.00, 4.00, 8.00] },
     { key: 'chief', label: 'Chief Badge', weight: 5, pays: [0.75, 1.25, 2.00, 3.50, 7.00, 15.00] },
+    { key: 'bonus', label: 'Fire Alarm Bonus', weight: 1.0, pays: null, bonus: true },
     { key: 'wild', label: 'Wild', weight: 1.4, pays: null, wild: true }
   ]);
 
-  const REGULAR = SYMBOLS.filter(symbol => !symbol.wild);
+  const REGULAR = SYMBOLS.filter(symbol => !symbol.wild && !symbol.bonus);
   const WILD_KEY = 'wild';
+  const BONUS_KEY = 'bonus';
+  const NON_CLUMP_KEYS = new Set([WILD_KEY, BONUS_KEY]);
   const TOTAL_WEIGHT = SYMBOLS.reduce((sum, symbol) => sum + symbol.weight, 0);
 
   const $ = id => document.getElementById(id);
@@ -95,7 +98,7 @@
   function maybeCloneNeighbor(neighbors) {
     if (!neighbors.length || randomFloat() >= CONFIG.clumpChance) return weightedSymbolKey();
     const selected = neighbors[Math.floor(randomFloat() * neighbors.length)];
-    return selected === WILD_KEY ? weightedSymbolKey() : selected;
+    return NON_CLUMP_KEYS.has(selected) ? weightedSymbolKey() : selected;
   }
 
   function createInitialBoard() {
@@ -200,18 +203,24 @@
     return { board: next, spawned };
   }
 
-  function spriteMarkup(key, label = '') {
+  function spriteMarkup(key, label = '', bonusCount = 0) {
+    if (key === BONUS_KEY) {
+      const stateClass = bonusCount <= 1 ? 'symbol-bonus-one' : 'symbol-bonus-two';
+      return `<span class="symbol-sprite symbol-bonus ${stateClass}" role="img" aria-label="${label}"></span>`;
+    }
     return `<span class="symbol-sprite symbol-${key}" role="img" aria-label="${label}"></span>`;
   }
 
   function renderBoard(spawned = [], animate = false) {
     const spawnedSet = new Set(spawned);
+    const bonusCount = state.board.reduce((count, key) => count + (key === BONUS_KEY ? 1 : 0), 0);
     el.board.innerHTML = state.board.map((key, index) => {
       const symbol = SYMBOLS.find(item => item.key === key);
       const classes = ['cell'];
       if (symbol?.wild) classes.push('wild');
+      if (symbol?.bonus) classes.push('bonus');
       if (animate && spawnedSet.has(index)) classes.push('drop');
-      return `<div class="${classes.join(' ')}" data-index="${index}" role="gridcell" aria-label="${symbol?.label || key}">${spriteMarkup(key, symbol?.label || key)}</div>`;
+      return `<div class="${classes.join(' ')}" data-index="${index}" role="gridcell" aria-label="${symbol?.label || key}">${spriteMarkup(key, symbol?.label || key, bonusCount)}</div>`;
     }).join('');
   }
 
