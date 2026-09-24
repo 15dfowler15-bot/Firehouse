@@ -6,7 +6,8 @@
   function selection(){return{rtp:+el.rtp.value,bonus:+el.bonus.value,features:[...el.panel.querySelectorAll('.feature-checks input:checked')].map(x=>x.value),firestarters:Math.max(0,Math.min(8,+el.fire.value||0)),seedTag:el.seed.value.trim()};}
   function reset(){el.rtp.value=String(F.DEFAULT_RTP);el.bonus.value='0';el.fire.value='0';el.seed.value='';el.panel.querySelectorAll('.feature-checks input').forEach(x=>x.checked=false);}
   function box(){const d=F.devArmed;el.box.classList.toggle('armed',!!d);if(!d){el.box.innerHTML='<strong>Not armed</strong><span>Normal RNG will be used.</span>';return;}const bits=[`${d.rtp}% profile`,d.bonus?`${d.bonus}-Alarm bonus`:null,...d.features.map(x=>x.toUpperCase()),d.firestarters?`${d.firestarters} Firestarter${d.firestarters===1?'':'s'}`:null].filter(Boolean);el.box.innerHTML=`<strong>ARMED FOR NEXT SPIN</strong><span>${bits.join(' · ')}</span>`;}
-  function consume(){const d=F.devArmed;F.devArmed=null;reset();box();return d;}
+  function consume(){return F.devArmed;}
+  function clear(){F.devArmed=null;reset();box();}
   function toggle(open){el.panel.classList.toggle('open',open);el.panel.setAttribute('aria-hidden',String(!open));}
   function telemetry(){el.tele.textContent=F.state.lastTelemetry?JSON.stringify(F.state.lastTelemetry,null,2):'No spin recorded yet.';}
 
@@ -26,5 +27,5 @@
 
   el.toggle.addEventListener('click',()=>toggle(true));el.close.addEventListener('click',()=>toggle(false));
   el.arm.addEventListener('click',()=>{if(F.state.busy)return;F.devArmed=selection();box();});el.sim.addEventListener('click',simulate);el.payBtn.addEventListener('click',()=>el.payDialog.showModal());
-  paytable();box();telemetry();F.dev={consume,telemetry};
+  paytable();box();telemetry();F.dev={consume,clear,telemetry};
 })();
