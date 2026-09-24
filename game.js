@@ -183,29 +183,45 @@
     const remove = new Set(removePositions);
     const next = Array(CONFIG.cells).fill(null);
     const spawned = [];
+    const movements = new Map();
 
     for (let col = 0; col < CONFIG.cols; col++) {
       let targetRow = CONFIG.rows - 1;
+
       for (let row = CONFIG.rows - 1; row >= 0; row--) {
-        const index = row * CONFIG.cols + col;
-        if (!remove.has(index)) {
-          next[targetRow * CONFIG.cols + col] = board[index];
-          targetRow--;
-        }
+        const sourceIndex = row * CONFIG.cols + col;
+        if (remove.has(sourceIndex)) continue;
+
+        const destinationIndex = targetRow * CONFIG.cols + col;
+        next[destinationIndex] = board[sourceIndex];
+        movements.set(destinationIndex, {
+          rows: targetRow - row,
+          col,
+          spawned: false
+        });
+        targetRow--;
       }
+
+      const spawnCount = targetRow + 1;
 
       while (targetRow >= 0) {
         const index = targetRow * CONFIG.cols + col;
         const neighbors = [];
         if (col > 0 && next[index - 1] != null) neighbors.push(next[index - 1]);
         if (targetRow < CONFIG.rows - 1 && next[index + CONFIG.cols] != null) neighbors.push(next[index + CONFIG.cols]);
+
         next[index] = maybeCloneNeighbor(neighbors);
         spawned.push(index);
+        movements.set(index, {
+          rows: spawnCount,
+          col,
+          spawned: true
+        });
         targetRow--;
       }
     }
 
-    return { board: next, spawned };
+    return { board: next, spawned, movements };
   }
 
   function spriteMarkup(key, label = '', bonusCount = 0) {
@@ -226,18 +242,87 @@
       '3+ PLACEHOLDER';
   }
 
-  function renderBoard(spawned = [], animate = false) {
-    const spawnedSet = new Set(spawned);
+  function renderBoard() {
     const bonusCount = state.board.reduce((count, key) => count + (key === BONUS_KEY ? 1 : 0), 0);
     updateAlarmDebugStatus(bonusCount);
+
     el.board.innerHTML = state.board.map((key, index) => {
       const symbol = SYMBOLS.find(item => item.key === key);
       const classes = ['cell'];
       if (symbol?.wild) classes.push('wild');
       if (symbol?.bonus) classes.push('bonus');
-      if (animate && spawnedSet.has(index)) classes.push('drop');
+
       return `<div class="${classes.join(' ')}" data-index="${index}" role="gridcell" aria-label="${symbol?.label || key}">${spriteMarkup(key, symbol?.label || key, bonusCount)}</div>`;
     }).join('');
+  }
+
+  function initialGravityPlan() {
+    const movements = new Map();
+    for (let index = 0; index < CONFIG.cells; index++) {
+      movements.set(index, {
+        rows: CONFIG.rows,
+        col: index % CONFIG.cols,
+        spawned: true
+      });
+    }
+    return movements;
+  }
+
+  async function renderBoardWithGravity(movements) {
+    renderBoard();
+
+    if (!movements?.size) return;
+
+    const prefersReducedMotion = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+    if (prefersReducedMotion || !Element.prototype.animate) return;
+
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+    const firstCell = el.board.querySelector('.cell');
+    if (!firstCell) return;
+
+    const computedBoard = getComputedStyle(el.board);
+    const gap = parseFloat(computedBoard.rowGap || computedBoard.gap) || 0;
+    const pitch = firstCell.getBoundingClientRect().height + gap;
+
+    const activeColumns = [...new Set(
+      [...movements.values()]
+        .filter(move => move.rows > 0)
+        .map(move => move.col)
+    )].sort((a, b) => a - b);
+
+    const columnRank = new Map(activeColumns.map((col, rank) => [col, rank]));
+    const columnStagger = 72;
+    const fallDuration = 390;
+    const animations = [];
+
+    for (const [index, move] of movements.entries()) {
+      if (move.rows <= 0) continue;
+
+      const cell = el.board.querySelector(`[data-index="${index}"]`);
+      if (!cell) continue;
+
+      const startY = -move.rows * pitch;
+      const delay = (columnRank.get(move.col) || 0) * columnStagger;
+
+      const animation = cell.animate([
+        { transform: `translate3d(0, ${startY}px, 0)`, offset: 0 },
+        { transform: 'translate3d(0, 4px, 0)', offset: 0.88 },
+        { transform: 'translate3d(0, 0, 0)', offset: 1 }
+      ], {
+        duration: fallDuration,
+        delay,
+        easing: 'cubic-bezier(.18,.72,.22,1)',
+        fill: 'backwards'
+      });
+
+      animations.push(animation.finished.catch(() => {}));
+    }
+
+    if (animations.length) {
+      await Promise.all(animations);
+      await sleep(35);
+    }
   }
 
   function setDebugAlarmCount(count) {
@@ -310,8 +395,7 @@
     setMessage('RESPONDING…', 'NEW BOARD');
 
     state.board = createInitialBoard();
-    renderBoard([...Array(CONFIG.cells).keys()], true);
-    await sleep(380);
+    await renderBoardWithGravity(initialGravityPlan());
 
     let totalX = 0;
     let cascadeNumber = 0;
@@ -326,8 +410,7 @@
 
       const cascaded = cascadeBoard(state.board, result.remove);
       state.board = cascaded.board;
-      renderBoard(cascaded.spawned, true);
-      await sleep(330);
+      await renderBoardWithGravity(cascaded.movements);
     }
 
     const creditsWon = totalX * bet;
