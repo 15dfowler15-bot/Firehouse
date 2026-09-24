@@ -276,16 +276,23 @@
     const prefersReducedMotion = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
     if (prefersReducedMotion || !Element.prototype.animate) return;
 
-    const movingCells = [];
+    const survivorMoves = [];
+    const spawnedMoves = [];
 
-    // Hide every tile that will move BEFORE the browser gets a chance to paint
-    // the freshly-rendered board at its final positions.
+    // Hide every tile that will move before the browser can paint the board
+    // at its final positions. Survivors and new symbols are revealed in
+    // separate gravity phases below.
     for (const [index, move] of movements.entries()) {
       if (move.rows <= 0) continue;
+
       const cell = el.board.querySelector(`[data-index="${index}"]`);
       if (!cell) continue;
+
       cell.style.visibility = 'hidden';
-      movingCells.push({ cell, move });
+
+      const item = { cell, move };
+      if (move.spawned) spawnedMoves.push(item);
+      else survivorMoves.push(item);
     }
 
     const firstCell = el.board.querySelector('.cell');
@@ -295,61 +302,77 @@
     const gap = parseFloat(computedBoard.rowGap || computedBoard.gap) || 0;
     const pitch = firstCell.getBoundingClientRect().height + gap;
 
-    const activeColumns = [...new Set(
-      movingCells.map(({ move }) => move.col)
-    )].sort((a, b) => a - b);
-
-    const columnRank = new Map(activeColumns.map((col, rank) => [col, rank]));
     const columnStagger = 72;
     const fallDuration = 390;
 
-    // Put tiles at their true starting positions while they are still hidden.
-    for (const { cell, move } of movingCells) {
-      const startY = -move.rows * pitch;
-      cell.style.transform = `translate3d(0, ${startY}px, 0)`;
-      cell.style.willChange = 'transform';
+    function prepareMoves(items) {
+      for (const { cell, move } of items) {
+        const startY = -move.rows * pitch;
+        cell.style.transform = `translate3d(0, ${startY}px, 0)`;
+        cell.style.willChange = 'transform';
+      }
     }
 
-    // Commit the off-board starting positions, then reveal them there.
-    // This prevents the one-frame flash at the destination cells.
-    void el.board.offsetHeight;
-    for (const { cell } of movingCells) {
-      cell.style.visibility = 'visible';
-    }
+    async function animateGravityPhase(items) {
+      if (!items.length) return;
 
-    await new Promise(resolve => requestAnimationFrame(resolve));
+      const activeColumns = [...new Set(items.map(({ move }) => move.col))]
+        .sort((a, b) => a - b);
+      const columnRank = new Map(activeColumns.map((col, rank) => [col, rank]));
 
-    const animations = [];
+      // Reveal this phase only after its start positions are committed.
+      void el.board.offsetHeight;
+      for (const { cell } of items) {
+        cell.style.visibility = 'visible';
+      }
 
-    for (const { cell, move } of movingCells) {
-      const startY = -move.rows * pitch;
-      const delay = (columnRank.get(move.col) || 0) * columnStagger;
+      await new Promise(resolve => requestAnimationFrame(resolve));
 
-      const animation = cell.animate([
-        { transform: `translate3d(0, ${startY}px, 0)`, offset: 0 },
-        { transform: 'translate3d(0, 4px, 0)', offset: 0.88 },
-        { transform: 'translate3d(0, 0, 0)', offset: 1 }
-      ], {
-        duration: fallDuration,
-        delay,
-        easing: 'cubic-bezier(.18,.72,.22,1)',
-        fill: 'both'
-      });
+      const animations = items.map(({ cell, move }) => {
+        const startY = -move.rows * pitch;
+        const delay = (columnRank.get(move.col) || 0) * columnStagger;
 
-      animations.push(
-        animation.finished
+        const animation = cell.animate([
+          { transform: `translate3d(0, ${startY}px, 0)`, offset: 0 },
+          { transform: 'translate3d(0, 4px, 0)', offset: 0.88 },
+          { transform: 'translate3d(0, 0, 0)', offset: 1 }
+        ], {
+          duration: fallDuration,
+          delay,
+          easing: 'cubic-bezier(.18,.72,.22,1)',
+          fill: 'both'
+        });
+
+        return animation.finished
           .catch(() => {})
           .then(() => {
             cell.style.transform = '';
             cell.style.willChange = '';
-          })
-      );
+          });
+      });
+
+      await Promise.all(animations);
     }
 
-    if (animations.length) {
-      await Promise.all(animations);
-      await sleep(35);
+    // Position BOTH groups before any reveal so newly generated tiles can
+    // never flash in their destination cells.
+    prepareMoves(survivorMoves);
+    prepareMoves(spawnedMoves);
+
+    // Cascade rhythm:
+    // 1) existing symbols collapse into the holes
+    // 2) hold for half a second
+    // 3) replacement symbols enter from above
+    if (survivorMoves.length) {
+      await animateGravityPhase(survivorMoves);
+
+      if (spawnedMoves.length) {
+        await sleep(500);
+      }
     }
+
+    await animateGravityPhase(spawnedMoves);
+    await sleep(35);
   }
 
   function setDebugAlarmCount(count) {
