@@ -126,6 +126,7 @@
     lastWinX: 0,
     forceAlarmOff: false,
     bonusActive: false,
+    debugFireCells: new Set(),
     stats: { spins: 0, wagered: 0, won: 0 }
   };
 
@@ -342,7 +343,11 @@
       if (symbol?.wild) classes.push('wild');
       if (symbol?.bonus) classes.push('bonus');
 
-      return `<div class="${classes.join(' ')}" data-index="${index}" role="gridcell" aria-label="${symbol?.label || key}">${spriteMarkup(key, symbol?.label || key, bonusCount, state.forceAlarmOff, state.bonusActive)}</div>`;
+      const fireOverlay = state.debugFireCells.has(index)
+        ? '<span class="fire-panel-animation" aria-hidden="true"></span>'
+        : '';
+
+      return `<div class="${classes.join(' ')}" data-index="${index}" role="gridcell" aria-label="${symbol?.label || key}">${spriteMarkup(key, symbol?.label || key, bonusCount, state.forceAlarmOff, state.bonusActive)}${fireOverlay}</div>`;
     }).join('');
   }
 
@@ -589,6 +594,81 @@
     await sleep(35);
   }
 
+  function randomCellIndex() {
+    return Math.floor(randomFloat() * CONFIG.cells);
+  }
+
+  function randomUniqueCellIndices(count) {
+    const indices = new Set();
+    while (indices.size < Math.min(count, CONFIG.cells)) {
+      indices.add(randomCellIndex());
+    }
+    return [...indices];
+  }
+
+  function randomFireSquare2x2() {
+    const row = Math.floor(randomFloat() * (CONFIG.rows - 1));
+    const col = Math.floor(randomFloat() * (CONFIG.cols - 1));
+    return [
+      row * CONFIG.cols + col,
+      row * CONFIG.cols + col + 1,
+      (row + 1) * CONFIG.cols + col,
+      (row + 1) * CONFIG.cols + col + 1
+    ];
+  }
+
+  function randomWeirdFireShape() {
+    const shapes = [
+      [[0, 0], [1, 0], [2, 0], [2, 1], [1, 2]],
+      [[0, 1], [1, 0], [1, 1], [1, 2], [2, 2]],
+      [[0, 0], [0, 1], [1, 1], [2, 1], [2, 2]],
+      [[0, 2], [1, 2], [1, 1], [2, 1], [2, 0]],
+      [[0, 0], [1, 0], [1, 1], [1, 2], [2, 2], [3, 2]]
+    ];
+
+    const shape = shapes[Math.floor(randomFloat() * shapes.length)];
+    const maxRow = Math.max(...shape.map(([row]) => row));
+    const maxCol = Math.max(...shape.map(([, col]) => col));
+    const baseRow = Math.floor(randomFloat() * (CONFIG.rows - maxRow));
+    const baseCol = Math.floor(randomFloat() * (CONFIG.cols - maxCol));
+
+    return shape.map(([row, col]) =>
+      (baseRow + row) * CONFIG.cols + baseCol + col
+    );
+  }
+
+  function setDebugFirePattern(mode) {
+    if (state.busy) return;
+
+    let indices = [];
+    if (mode === 'solo') indices = randomUniqueCellIndices(1);
+    else if (mode === 'random3') indices = randomUniqueCellIndices(3);
+    else if (mode === 'square') indices = randomFireSquare2x2();
+    else if (mode === 'weird') indices = randomWeirdFireShape();
+
+    state.debugFireCells = new Set(indices);
+    renderBoard();
+
+    const labels = {
+      solo: '1 FIRE · SOLO',
+      random3: '3 FIRES · RANDOM',
+      square: 'FIRE · 2×2 BLOCK',
+      weird: 'FIRE · WEIRD SHAPE',
+      clear: 'FIRE · CLEARED'
+    };
+
+    setMessage(`DEBUG · ${labels[mode] || 'FIRE'}`, 'FIRE ANIMATION');
+    el.debugDialog?.close();
+  }
+
+  function clearDebugFire() {
+    if (state.busy) return;
+    state.debugFireCells.clear();
+    renderBoard();
+    setMessage('DEBUG · FIRE CLEARED', 'FIRE ANIMATION');
+    el.debugDialog?.close();
+  }
+
   const DEBUG_BONUS_POSITIONS = Object.freeze([
     1 * CONFIG.cols + 0,
     1 * CONFIG.cols + 2,
@@ -799,6 +879,7 @@
 
     state.forceAlarmOff = false;
     state.bonusActive = false;
+    state.debugFireCells.clear();
     state.board = createInitialBoard();
     await renderBoardWithGravity(initialGravityPlan());
 
@@ -934,6 +1015,14 @@
 
   document.querySelectorAll('[data-bonus-chain-test]').forEach(button => {
     button.addEventListener('click', () => runDebugBonusChain(Number(button.dataset.bonusChainTest)));
+  });
+
+  document.querySelectorAll('[data-fire-debug]').forEach(button => {
+    button.addEventListener('click', () => {
+      const mode = button.dataset.fireDebug;
+      if (mode === 'clear') clearDebugFire();
+      else setDebugFirePattern(mode);
+    });
   });
 
   renderPaytable();
