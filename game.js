@@ -2,7 +2,7 @@
   'use strict';
 
   const CONFIG = Object.freeze({
-    version: '0.2.3',
+    version: '0.3.0',
     rows: 7,
     cols: 7,
     cells: 49,
@@ -13,6 +13,13 @@
     bonusAnticipationPauseMs: 650,
     bonusAnticipationStepMs: 125,
     maxBonusAnticipation: 5,
+    debugEnabled: true,
+    eventHistoryLimit: 180,
+    particleLimit: 96,
+
+    // Rare base-game fire teaser. Selection happens BEFORE board generation.
+    baseFireFeatureChance: 0.028,
+    baseFireHoseShare: 0.20,
 
     // Prototype fire tuning. Mechanics are authoritative; these rates are easy to rebalance later.
     fireThreeIgnitionChance: 0.35,
@@ -46,6 +53,17 @@
     fireWildBankBounceMs: 260,
     fireWildBankHoldMs: 320,
     fireWildEntryMs: 520,
+    backdraftAnticipationMs: 520,
+    backdraftBurstMs: 520,
+    multiplierTransitionMs: 420,
+
+    // Win celebration thresholds are multiples of total bet.
+    bigWinThresholds: Object.freeze({
+      big: 12,
+      super: 30,
+      mega: 75,
+      inferno: 150
+    }),
 
     bets: [0.20, 0.50, 1.00, 2.00, 5.00, 10.00]
   });
@@ -156,6 +174,51 @@
     })
   });
 
+  // Developer math profiles alter actual probability/payout inputs.
+  // Target RTP values are NOMINAL development targets, not certified RTP claims.
+  const MATH_PROFILES = Object.freeze({
+    baseline: Object.freeze({
+      label: 'BASELINE',
+      nominalTargetRtp: 0.96,
+      payoutScale: 1,
+      clumpScale: 1,
+      bonusWeightScale: 1,
+      fireScale: 1,
+      sprayScale: 1,
+      volatility: 'standard'
+    }),
+    lowStress: Object.freeze({
+      label: 'LOW RTP STRESS',
+      nominalTargetRtp: 0.92,
+      payoutScale: 0.9583333333,
+      clumpScale: 0.94,
+      bonusWeightScale: 0.85,
+      fireScale: 0.90,
+      sprayScale: 0.92,
+      volatility: 'low-hit stress'
+    }),
+    highStress: Object.freeze({
+      label: 'HIGH RTP STRESS',
+      nominalTargetRtp: 0.98,
+      payoutScale: 1.0208333333,
+      clumpScale: 1.03,
+      bonusWeightScale: 1.08,
+      fireScale: 1.05,
+      sprayScale: 1.05,
+      volatility: 'high-hit stress'
+    }),
+    highVolatility: Object.freeze({
+      label: 'HIGH VOLATILITY',
+      nominalTargetRtp: 0.96,
+      payoutScale: 1,
+      clumpScale: 1.08,
+      bonusWeightScale: 0.92,
+      fireScale: 1.20,
+      sprayScale: 1.14,
+      volatility: 'high'
+    })
+  });
+
   const $ = id => document.getElementById(id);
   const el = {
     board: $('board'),
@@ -185,7 +248,24 @@
     debugBtn: $('debugBtn'),
     debugDialog: $('debugDialog'),
     debugClose: $('debugClose'),
-    debugGameMode: $('debugGameMode')
+    debugGameMode: $('debugGameMode'),
+    boardFx: $('boardFx'),
+    transitionOverlay: $('transitionOverlay'),
+    transitionTitle: $('transitionTitle'),
+    transitionDetail: $('transitionDetail'),
+    bigWinOverlay: $('bigWinOverlay'),
+    bigWinTier: $('bigWinTier'),
+    bigWinAmount: $('bigWinAmount'),
+    debugStateInspector: $('debugStateInspector'),
+    debugEventLog: $('debugEventLog'),
+    debugMathProfile: $('debugMathProfile'),
+    debugMathConfig: $('debugMathConfig'),
+    debugSeed: $('debugSeed'),
+    debugSprayRow: $('debugSprayRow'),
+    debugSymbolWeights: $('debugSymbolWeights'),
+    debugBuyPrice3: $('debugBuyPrice3'),
+    debugBuyPrice4: $('debugBuyPrice4'),
+    debugBuyPrice5: $('debugBuyPrice5')
   };
 
   const state = {
@@ -222,11 +302,71 @@
     // Playable one-shot test modes. All resolve through the same game engine.
     pendingGameMode: 'normal',
     largeOutcomeActive: false,
+    baseFireFeature: null,
+
+    // Presentation / QA state.
+    animationSpeed: 1,
+    spinId: 0,
+    currentCascade: 0,
+    currentSpinBaseX: 0,
+    currentSpinBonusX: 0,
+    eventHistory: [],
+    debugLogEnabled: false,
+    debugSeed: '',
+    seedState: 0,
+    mathProfile: 'baseline',
+    mathOverrides: {
+      clumpChance: null,
+      fireIgnitionChance: null,
+      fireSpreadChance: null,
+      sprayChance: null,
+      bonusWeight: null,
+      freshIgnitionCount: null
+    },
+    symbolWeightOverrides: {},
+    debugEnhancements: {
+      guaranteedFire: false,
+      guaranteedSpray: false,
+      highFireFrequency: false,
+      maxVisualIntensity: false
+    },
+    lastError: '',
+    bigWinSkip: false,
 
     stats: { spins: 0, wagered: 0, won: 0 }
   };
 
+  function clamp(value, min, max) {
+    return Math.min(max, Math.max(min, value));
+  }
+
+  function hashSeed(input) {
+    let hash = 2166136261;
+    const text = String(input);
+    for (let index = 0; index < text.length; index++) {
+      hash ^= text.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    return hash >>> 0;
+  }
+
+  function setDebugSeed(seed) {
+    const normalized = String(seed ?? '').trim();
+    state.debugSeed = normalized;
+    state.seedState = normalized ? hashSeed(normalized) : 0;
+    recordEvent('debug-seed', { seed: normalized || null });
+  }
+
+  function seededRandomFloat() {
+    let t = state.seedState += 0x6D2B79F5;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  }
+
   function randomFloat() {
+    if (state.debugSeed) return seededRandomFloat();
+
     if (globalThis.crypto?.getRandomValues) {
       const value = new Uint32Array(1);
       globalThis.crypto.getRandomValues(value);
@@ -235,25 +375,129 @@
     return Math.random();
   }
 
+  function activeMathPreset() {
+    return MATH_PROFILES[state.mathProfile] || MATH_PROFILES.baseline;
+  }
+
   function currentRngProfileName() {
     return state.largeOutcomeActive ? 'large' : 'normal';
   }
 
   function currentRngProfile(profileName = currentRngProfileName()) {
-    return RNG_PROFILES[profileName] || RNG_PROFILES.normal;
+    const base = RNG_PROFILES[profileName] || RNG_PROFILES.normal;
+    const preset = activeMathPreset();
+    const overrides = state.mathOverrides;
+
+    const fireScale =
+      preset.fireScale *
+      (state.debugEnhancements.highFireFrequency ? 1.35 : 1);
+
+    return {
+      ...base,
+      clumpChance: clamp(
+        overrides.clumpChance ?? (base.clumpChance * preset.clumpScale),
+        0,
+        0.98
+      ),
+      fireThreeIgnitionChance: clamp(
+        overrides.fireIgnitionChance ?? (base.fireThreeIgnitionChance * fireScale),
+        0,
+        1
+      ),
+      fireSpreadChance: clamp(
+        overrides.fireSpreadChance ?? (base.fireSpreadChance * fireScale),
+        0,
+        1
+      ),
+      fireFiveSprayChance: clamp(
+        overrides.sprayChance ?? (base.fireFiveSprayChance * preset.sprayScale),
+        0,
+        1
+      )
+    };
+  }
+
+  function effectiveSymbolWeight(symbol, profileName = currentRngProfileName()) {
+    const override = state.symbolWeightOverrides[symbol.key];
+    let weight = Number.isFinite(override) ? Math.max(0, override) : symbol.weight;
+
+    if (profileName === 'large') {
+      const multipliers = {
+        chief: 2.4,
+        dalmatian: 1.9,
+        radio: 1.5,
+        wild: 2.3,
+        suit: 1.25
+      };
+      weight *= multipliers[symbol.key] || 1;
+    }
+
+    if (symbol.key === BONUS_KEY) {
+      const overrideBonus = state.mathOverrides.bonusWeight;
+      if (Number.isFinite(overrideBonus)) return Math.max(0, overrideBonus);
+      weight *= activeMathPreset().bonusWeightScale;
+    }
+
+    return weight;
   }
 
   function profiledSymbolWeight(symbol, profileName = currentRngProfileName()) {
-    if (profileName !== 'large') return symbol.weight;
+    return effectiveSymbolWeight(symbol, profileName);
+  }
 
-    const multipliers = {
-      chief: 2.4,
-      dalmatian: 1.9,
-      radio: 1.5,
-      wild: 2.3,
-      suit: 1.25
+  function recordEvent(type, data = {}) {
+    const event = {
+      sequence: state.eventHistory.length
+        ? state.eventHistory[state.eventHistory.length - 1].sequence + 1
+        : 1,
+      time: Date.now(),
+      spinId: state.spinId,
+      type,
+      ...data
     };
-    return symbol.weight * (multipliers[symbol.key] || 1);
+
+    state.eventHistory.push(event);
+    if (state.eventHistory.length > CONFIG.eventHistoryLimit) {
+      state.eventHistory.splice(0, state.eventHistory.length - CONFIG.eventHistoryLimit);
+    }
+
+    if (state.debugLogEnabled) {
+      console.debug('[Firehouse]', event);
+    }
+
+    try {
+      globalThis.dispatchEvent?.(
+        new CustomEvent('firehouse:event', { detail: event })
+      );
+    } catch {}
+
+    updateDebugInspector();
+    return event;
+  }
+
+  function emitAudioHook(name, detail = {}) {
+    try {
+      globalThis.dispatchEvent?.(
+        new CustomEvent('firehouse:audio', {
+          detail: { name, spinId: state.spinId, ...detail }
+        })
+      );
+    } catch {}
+  }
+
+  async function runPresentationEvent(name, detail = {}, animator = null) {
+    recordEvent(name, detail);
+    emitAudioHook(name, detail);
+    if (typeof animator === 'function') await animator();
+  }
+
+  function animationScale() {
+    return 1 / Math.max(0.1, state.animationSpeed || 1);
+  }
+
+  function scaledMs(ms) {
+    if (!Number.isFinite(ms) || ms <= 0) return Math.max(0, ms || 0);
+    return Math.max(1, Math.round(ms * animationScale()));
   }
 
   function weightedSymbolKey({ allowBonus = true, profileName = currentRngProfileName() } = {}) {
@@ -363,7 +607,7 @@
         const band = payBandIndex(positions.length);
         if (band < 0) continue;
 
-        const baseAmountX = symbol.pays[band];
+        const baseAmountX = symbol.pays[band] * activeMathPreset().payoutScale;
         const fireMultiplierTotal = symbolFire
           ? positions.reduce((sum, index) => {
               const fire = symbolFire[index];
@@ -927,7 +1171,7 @@
         offset: 1
       }
     ], {
-      duration: CONFIG.fireWildBankDropMs,
+      duration: scaledMs(CONFIG.fireWildBankDropMs),
       easing: 'cubic-bezier(.18,.76,.2,1)',
       fill: 'forwards'
     }).finished.catch(() => {});
@@ -946,7 +1190,7 @@
         transform: `translate3d(${dx}px,${dy}px,0) scale(1)`
       }
     ], {
-      duration: CONFIG.fireWildBankBounceMs,
+      duration: scaledMs(CONFIG.fireWildBankBounceMs),
       easing: 'cubic-bezier(.22,.84,.28,1)',
       fill: 'forwards'
     }).finished.catch(() => {});
@@ -993,7 +1237,7 @@
             { transform: 'translate3d(0,0,0) scale(1)', opacity: 1 },
             { transform: `translate3d(0,${dropDistance}px,0) scale(.94)`, opacity: 0 }
           ], {
-            duration: CONFIG.fireCompressionDropMs,
+            duration: scaledMs(CONFIG.fireCompressionDropMs),
             delay: row * 18 + col * 8,
             easing: 'cubic-bezier(.42,0,.72,.26)',
             fill: 'forwards'
@@ -1027,7 +1271,7 @@
               { transform: 'scale(1.13)', filter: 'brightness(1.5)' },
               { transform: 'scale(1.05)', filter: 'brightness(1.25)' }
             ], {
-              duration: CONFIG.fireCompressionMergeMs,
+              duration: scaledMs(CONFIG.fireCompressionMergeMs),
               easing: 'cubic-bezier(.18,.78,.22,1)',
               fill: 'forwards'
             }).finished.catch(() => {});
@@ -1048,7 +1292,7 @@
               filter: 'brightness(1.8)'
             }
           ], {
-            duration: CONFIG.fireCompressionMergeMs,
+            duration: scaledMs(CONFIG.fireCompressionMergeMs),
             delay,
             easing: 'cubic-bezier(.2,.72,.18,1)',
             fill: 'forwards'
@@ -1084,7 +1328,7 @@
         { transform: 'scale(1.22)', opacity: 1, filter: 'brightness(1.6)' },
         { transform: 'scale(1)', opacity: 1, filter: 'brightness(1)' }
       ], {
-        duration: CONFIG.fireCompressionResultMs,
+        duration: scaledMs(CONFIG.fireCompressionResultMs),
         easing: 'cubic-bezier(.16,.82,.24,1)',
         fill: 'both'
       }).finished.catch(() => {});
@@ -1170,7 +1414,7 @@
       { transform: 'translate3d(0,4%,0) scale(1.08)', opacity: 1, filter: 'brightness(1.35)' },
       { transform: 'translate3d(0,0,0) scale(1)', opacity: 1, filter: 'brightness(1)' }
     ], {
-      duration: CONFIG.fireWildEntryMs,
+      duration: scaledMs(CONFIG.fireWildEntryMs),
       easing: 'cubic-bezier(.16,.82,.24,1)',
       fill: 'both'
     }).finished.catch(() => {});
@@ -1188,7 +1432,7 @@
         { transform: 'scale(1.12)', filter: kind === 'reignite' ? 'brightness(1.65)' : 'brightness(1.45)' },
         { transform: 'scale(1)', filter: 'brightness(1)' }
       ], {
-        duration: 420,
+        duration: scaledMs(420),
         delay: rank * 34,
         easing: 'cubic-bezier(.2,.8,.24,1)',
         fill: 'both'
