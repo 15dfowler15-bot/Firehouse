@@ -40,6 +40,19 @@
   const NON_CLUMP_KEYS = new Set([WILD_KEY, BONUS_KEY]);
   const TOTAL_WEIGHT = SYMBOLS.reduce((sum, symbol) => sum + symbol.weight, 0);
 
+  const BONUS_TWO_FRAMES = Object.freeze([
+    'assets/animations/bonus1/Bonus21.png',
+    'assets/animations/bonus1/Bonus22.png',
+    'assets/animations/bonus1/Bonus23.png',
+    'assets/animations/bonus1/Bonus24.png',
+    'assets/animations/bonus1/Bonus25.png'
+  ]);
+
+  for (const src of BONUS_TWO_FRAMES) {
+    const image = new Image();
+    image.src = src;
+  }
+
   const $ = id => document.getElementById(id);
   const el = {
     board: $('board'),
