@@ -534,9 +534,10 @@
         return;
       }
 
-      setAnticipationColumns(remainingColumns);
+      clearAnticipationColumns();
       setMessage('BONUS ANTICIPATION', `${visibleBonusCount} ALARMS`);
       await sleep(CONFIG.bonusAnticipationPauseMs);
+      setAnticipationColumns(remainingColumns);
       slowMode = true;
     }
 
@@ -559,8 +560,10 @@
         setAnticipationColumns(remainingColumns);
 
         if (result.landedBonus && result.after >= 3 && remainingColumns.length) {
+          clearAnticipationColumns();
           setMessage('BONUS ANTICIPATION', `${result.after} ALARMS`);
           await sleep(CONFIG.bonusAnticipationPauseMs);
+          setAnticipationColumns(remainingColumns);
         }
       }
     }
