@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <meta name="theme-color" content="#0c0c0d" />
   <title>Firehouse</title>
-  <link rel="stylesheet" href="styles.css?v=completion-v030-1" />
+  <link rel="stylesheet" href="styles.css?v=completion-v030-2" />
 </head>
 <body>
   <div class="page-shell">
@@ -35,7 +35,7 @@
       <div class="header-actions">
         <button class="small-btn" id="paytableBtn" type="button">PAYTABLE</button>
         <button class="small-btn" id="mathBtn" type="button">MATH</button>
-        <button class="small-btn debug-header-btn" id="debugBtn" type="button">MODE</button>
+        <button class="small-btn debug-header-btn" id="debugBtn" type="button">DEV / QA</button>
       </div>
     </header>
     <section class="machine" aria-label="Firehouse slot game">
@@ -230,6 +230,7 @@
         <button data-debug-action="ignite" type="button">COMBUSTION</button>
         <button data-debug-action="multi-fire" type="button">MULTI-FIRE SPREAD</button>
         <button data-debug-action="spray" type="button">SPRAY / DRIP</button>
+        <button data-debug-action="spray-all" type="button">SPRAY ALL 7 ROWS</button>
         <button data-debug-action="backdraft" type="button">BACKDRAFT TRUE</button>
         <button data-debug-action="failed-backdraft" type="button">BACKDRAFT FALSE</button>
         <button data-debug-action="extinguish-all" type="button">COMPLETE EXTINGUISH</button>
@@ -277,6 +278,9 @@
         <label><span>5-Alarm Spray chance</span><input id="debugSprayChance" type="number" min="0" max="1" step="0.01" placeholder="profile" /></label>
         <label><span>Bonus symbol weight</span><input id="debugBonusWeight" type="number" min="0" step="0.1" placeholder="profile" /></label>
         <label><span>Fresh 5-Alarm ignitions</span><input id="debugFreshIgnitions" type="number" min="0" max="10" step="1" placeholder="1" /></label>
+        <label><span>Forced 3-Alarm rate</span><input id="debugTrigger3Chance" type="number" min="0" max="1" step="0.001" placeholder="natural" /></label>
+        <label><span>Forced 4-Alarm rate</span><input id="debugTrigger4Chance" type="number" min="0" max="1" step="0.001" placeholder="natural" /></label>
+        <label><span>Forced 5-Alarm rate</span><input id="debugTrigger5Chance" type="number" min="0" max="1" step="0.001" placeholder="natural" /></label>
       </div>
       <div class="debug-subhead">SYMBOL WEIGHTS</div>
       <div id="debugSymbolWeights" class="symbol-weight-grid"></div>
@@ -314,6 +318,6 @@
     </p>
   </dialog>
 
-  <script src="game.js?v=completion-v030-1"></script>
+  <script src="game.js?v=completion-v030-2"></script>
 </body>
 </html>
