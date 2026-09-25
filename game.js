@@ -2,7 +2,7 @@
   'use strict';
 
   const CONFIG = Object.freeze({
-    version: '0.2.0',
+    version: '0.2.1',
     rows: 7,
     cols: 7,
     cells: 49,
@@ -10,8 +10,8 @@
     targetRtp: 0.96,
     clumpChance: 0.5478,
     maxCascades: 60,
-    bonusAnticipationPauseMs: 500,
-    bonusAnticipationStepMs: 100,
+    bonusAnticipationPauseMs: 650,
+    bonusAnticipationStepMs: 125,
     maxBonusAnticipation: 5,
 
     // Prototype fire tuning. Mechanics are authoritative; these rates are easy to rebalance later.
@@ -19,17 +19,30 @@
     fireSpreadChance: 0.42,
     fireFiveSprayChance: 0.45,
 
-    // 5-Alarm Fire Wild carryover math / volatility controls.
-    fireWildAdditionalSymbolContribution: 2,
-    fireWildCarryoverCap: 24,
+    // 5-Alarm Fire Wild / volatility controls.
+    // Carryover multiplier is the uncapped SUM of all surviving fire multipliers.
     fireFiveFreshIgnitionCount: 1,
 
     // Current orthogonal spread has at most 4 neighbors; kept explicit for tuning.
     fireSpreadMaxTargets: 4,
 
-    fireEventPauseMs: 260,
-    sprayLinePauseMs: 180,
-    sprayDripPauseMs: 300,
+    // Presentation pacing. Kept configurable so animation feel can be tuned without
+    // touching the game-state / payout engine.
+    gravityFallDurationMs: 480,
+    gravityColumnStaggerMs: 82,
+    gravityCascadePauseMs: 285,
+    gravitySettleBeatMs: 65,
+    winHoldMs: 680,
+    winPopMs: 285,
+    bonusTriggerHoldMs: 850,
+    freeSpinEndHoldMs: 560,
+    fireEventPauseMs: 340,
+    sprayLinePauseMs: 250,
+    sprayDripPauseMs: 430,
+    fireCompressionDropMs: 520,
+    fireCompressionMergeMs: 720,
+    fireCompressionResultMs: 620,
+    fireWildEntryMs: 520,
 
     bets: [0.20, 0.50, 1.00, 2.00, 5.00, 10.00]
   });
@@ -199,6 +212,7 @@
     },
     fireHistory: [],
     fireWildCarryover: null,
+    compressionResultIndex: null,
     sprayVisual: null,
     backdraftFlash: false,
 
@@ -516,16 +530,29 @@
       const fire = state.symbolFire[index];
       if (fire?.state === FIRE_STATE.BURNING) classes.push('fire-burning');
       if (fire?.state === FIRE_STATE.SMOULDERING) classes.push('fire-smouldering');
+      if (state.compressionResultIndex === index) classes.push('fire-compression-result');
 
       const row = Math.floor(index / CONFIG.cols);
       if (state.sprayVisual && row === state.sprayVisual.row) classes.push('spray-line-row');
       if (state.sprayVisual?.phase === 'drip' && row > state.sprayVisual.row) classes.push('spray-drip-cell');
 
+      const fireLabel = key === WILD_KEY
+        ? (fire?.state === FIRE_STATE.BURNING ? 'FIRE WILD' : 'SMOULDER WILD')
+        : (fire?.state === FIRE_STATE.BURNING ? 'FIRE' : 'SMOULDER');
+
       const fireMarkup = fire && fire.state !== FIRE_STATE.NORMAL
-        ? `<span class="fire-state-placeholder ${fire.state}" aria-hidden="true"><strong>${fire.state === FIRE_STATE.BURNING ? 'FIRE' : 'SMOULDER'}</strong><em>${fire.multiplier}×</em></span>`
+        ? `<span class="fire-state-placeholder ${fire.state}" aria-hidden="true"><strong>${fireLabel}</strong><em>${fire.multiplier}×</em></span>`
         : '';
 
-      return `<div class="${classes.join(' ')}" data-index="${index}" role="gridcell" aria-label="${symbol?.label || key}">${spriteMarkup(key, symbol?.label || key, bonusCount, state.forceAlarmOff, state.bonusActive)}${fireMarkup}</div>`;
+      const compressionMarkup = state.compressionResultIndex === index && fire
+        ? `<span class="fire-compression-total" aria-hidden="true">${fire.multiplier}×</span>`
+        : '';
+
+      const symbolMarkup = key == null
+        ? ''
+        : spriteMarkup(key, symbol?.label || key, bonusCount, state.forceAlarmOff, state.bonusActive);
+
+      return `<div class="${classes.join(' ')}" data-index="${index}" role="gridcell" aria-label="${symbol?.label || key || 'Empty'}">${symbolMarkup}${fireMarkup}${compressionMarkup}</div>`;
     }).join('');
   }
 
@@ -586,8 +613,8 @@
     const gap = parseFloat(computedBoard.rowGap || computedBoard.gap) || 0;
     const pitch = firstCell.getBoundingClientRect().height + gap;
 
-    const columnStagger = 72;
-    const fallDuration = 390;
+    const columnStagger = CONFIG.gravityColumnStaggerMs;
+    const fallDuration = CONFIG.gravityFallDurationMs;
 
     function prepareMoves(items) {
       for (const { cell, move } of items) {
@@ -681,12 +708,12 @@
 
     if (survivorMoves.length) {
       await animateGravityPhase(survivorMoves);
-      if (spawnedMoves.length) await sleep(350);
+      if (spawnedMoves.length) await sleep(CONFIG.gravityCascadePauseMs);
     }
 
     if (!spawnedMoves.length) {
       clearAnticipationColumns();
-      await sleep(35);
+      await sleep(CONFIG.gravitySettleBeatMs);
       return;
     }
 
@@ -697,7 +724,7 @@
     if (!anticipationEnabled || visibleBonusCount >= CONFIG.maxBonusAnticipation) {
       await animateNormalColumns(activeColumns, groups);
       clearAnticipationColumns();
-      await sleep(35);
+      await sleep(CONFIG.gravitySettleBeatMs);
       return;
     }
 
@@ -720,7 +747,7 @@
       if (triggerIndex < 0) {
         await animateNormalColumns(activeColumns, groups);
         clearAnticipationColumns();
-        await sleep(35);
+        await sleep(CONFIG.gravitySettleBeatMs);
         return;
       }
 
@@ -730,7 +757,7 @@
 
       if (!remainingColumns.length || visibleBonusCount >= CONFIG.maxBonusAnticipation) {
         clearAnticipationColumns();
-        await sleep(35);
+        await sleep(CONFIG.gravitySettleBeatMs);
         return;
       }
 
@@ -769,7 +796,7 @@
     }
 
     clearAnticipationColumns();
-    await sleep(35);
+    await sleep(CONFIG.gravitySettleBeatMs);
   }
 
   function resetFireEventState() {
@@ -807,17 +834,16 @@
       );
   }
 
-  function compressFireWildCarryover() {
-    const survivors = collectSurvivingFire();
+  function buildFireWildCarryover(survivors = collectSurvivingFire()) {
     if (!survivors.length) return null;
 
-    const highestMultiplier = Math.max(...survivors.map(entry => entry.multiplier));
-    const additionalSymbols = Math.max(0, survivors.length - 1);
-    const rawMultiplier =
-      highestMultiplier +
-      (CONFIG.fireWildAdditionalSymbolContribution * additionalSymbols);
+    // Definitive 5-Alarm carryover math: straight additive collection.
+    // There is intentionally NO multiplier cap.
+    const multiplier = survivors.reduce(
+      (sum, entry) => sum + entry.multiplier,
+      0
+    );
 
-    const multiplier = Math.min(rawMultiplier, CONFIG.fireWildCarryoverCap);
     const fireState = survivors.some(entry => entry.state === FIRE_STATE.BURNING)
       ? FIRE_STATE.BURNING
       : FIRE_STATE.SMOULDERING;
@@ -825,10 +851,174 @@
     return {
       state: fireState,
       multiplier,
-      rawMultiplier,
-      highestMultiplier,
       collectedCount: survivors.length
     };
+  }
+
+  function compressionTargetIndex(survivors) {
+    if (!survivors.length) return null;
+
+    const centerRow = (CONFIG.rows - 1) / 2;
+    const centerCol = (CONFIG.cols - 1) / 2;
+
+    return [...survivors]
+      .sort((a, b) => {
+        const rowA = Math.floor(a.sourceIndex / CONFIG.cols);
+        const colA = a.sourceIndex % CONFIG.cols;
+        const rowB = Math.floor(b.sourceIndex / CONFIG.cols);
+        const colB = b.sourceIndex % CONFIG.cols;
+
+        const distanceA =
+          Math.abs(rowA - centerRow) +
+          Math.abs(colA - centerCol);
+        const distanceB =
+          Math.abs(rowB - centerRow) +
+          Math.abs(colB - centerCol);
+
+        return distanceA - distanceB || a.sourceIndex - b.sourceIndex;
+      })[0].sourceIndex;
+  }
+
+  async function animateFiveAlarmCompression() {
+    const survivors = collectSurvivingFire();
+    state.compressionResultIndex = null;
+
+    if (!survivors.length) {
+      state.fireWildCarryover = null;
+      return null;
+    }
+
+    const carryover = buildFireWildCarryover(survivors);
+    const targetIndex = compressionTargetIndex(survivors);
+    const survivorIndices = new Set(survivors.map(entry => entry.sourceIndex));
+
+    setMessage(
+      'FIRE COLLECTION',
+      `${survivors.length} SURVIVOR${survivors.length === 1 ? '' : 'S'} · ${carryover.multiplier}× TOTAL`
+    );
+
+    const reducedMotion =
+      globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ||
+      !Element.prototype.animate;
+
+    if (!reducedMotion) {
+      const boardRect = el.board.getBoundingClientRect();
+      const cells = [...el.board.querySelectorAll('.cell')];
+
+      // Phase 1: every non-fire symbol drops out of the board.
+      const normalAnimations = cells
+        .filter(cell => !survivorIndices.has(Number(cell.dataset.index)))
+        .map(cell => {
+          const index = Number(cell.dataset.index);
+          const row = Math.floor(index / CONFIG.cols);
+          const col = index % CONFIG.cols;
+          const dropDistance = boardRect.height * 0.72 + row * 10;
+
+          return cell.animate([
+            { transform: 'translate3d(0,0,0) scale(1)', opacity: 1 },
+            { transform: `translate3d(0,${dropDistance}px,0) scale(.94)`, opacity: 0 }
+          ], {
+            duration: CONFIG.fireCompressionDropMs,
+            delay: row * 18 + col * 8,
+            easing: 'cubic-bezier(.42,0,.72,.26)',
+            fill: 'forwards'
+          }).finished.catch(() => {});
+        });
+
+      await Promise.all(normalAnimations);
+      await sleep(110);
+
+      // Phase 2: surviving fire symbols collapse into the survivor nearest center.
+      const targetCell = el.board.querySelector(`[data-index="${targetIndex}"]`);
+      const targetRect = targetCell?.getBoundingClientRect();
+
+      if (targetRect) {
+        const targetX = targetRect.left + targetRect.width / 2;
+        const targetY = targetRect.top + targetRect.height / 2;
+
+        const mergeAnimations = survivors.map(entry => {
+          const cell = el.board.querySelector(`[data-index="${entry.sourceIndex}"]`);
+          if (!cell) return Promise.resolve();
+
+          const rect = cell.getBoundingClientRect();
+          const x = rect.left + rect.width / 2;
+          const y = rect.top + rect.height / 2;
+          const dx = targetX - x;
+          const dy = targetY - y;
+
+          if (entry.sourceIndex === targetIndex) {
+            return cell.animate([
+              { transform: 'scale(1)', filter: 'brightness(1)' },
+              { transform: 'scale(1.13)', filter: 'brightness(1.5)' },
+              { transform: 'scale(1.05)', filter: 'brightness(1.25)' }
+            ], {
+              duration: CONFIG.fireCompressionMergeMs,
+              easing: 'cubic-bezier(.18,.78,.22,1)',
+              fill: 'forwards'
+            }).finished.catch(() => {});
+          }
+
+          const distance = Math.hypot(dx, dy);
+          const delay = Math.min(120, distance * .18);
+
+          return cell.animate([
+            {
+              transform: 'translate3d(0,0,0) scale(1)',
+              opacity: 1,
+              filter: 'brightness(1)'
+            },
+            {
+              transform: `translate3d(${dx}px,${dy}px,0) scale(.18)`,
+              opacity: .12,
+              filter: 'brightness(1.8)'
+            }
+          ], {
+            duration: CONFIG.fireCompressionMergeMs,
+            delay,
+            easing: 'cubic-bezier(.2,.72,.18,1)',
+            fill: 'forwards'
+          }).finished.catch(() => {});
+        });
+
+        await Promise.all(mergeAnimations);
+      }
+    }
+
+    // Collapse the resolved board into one real Fire Wild in the chosen center-near cell.
+    state.board = Array(CONFIG.cells).fill(null);
+    state.symbolFire = createSymbolFireState();
+    state.board[targetIndex] = WILD_KEY;
+    state.symbolFire[targetIndex] = {
+      state: carryover.state,
+      multiplier: carryover.multiplier
+    };
+    state.fireWildCarryover = { ...carryover };
+    state.compressionResultIndex = targetIndex;
+
+    renderBoard();
+    showBanner(`${carryover.multiplier}×`);
+    setMessage(
+      'FIRE WILD FORGED',
+      `${carryover.collectedCount} FIRE SYMBOL${carryover.collectedCount === 1 ? '' : 'S'} → ${carryover.multiplier}× ${carryover.state.toUpperCase()} WILD`
+    );
+
+    const resultCell = el.board.querySelector(`[data-index="${targetIndex}"]`);
+    if (resultCell && !reducedMotion) {
+      await resultCell.animate([
+        { transform: 'scale(.62)', opacity: .45, filter: 'brightness(1.8)' },
+        { transform: 'scale(1.22)', opacity: 1, filter: 'brightness(1.6)' },
+        { transform: 'scale(1)', opacity: 1, filter: 'brightness(1)' }
+      ], {
+        duration: CONFIG.fireCompressionResultMs,
+        easing: 'cubic-bezier(.16,.82,.24,1)',
+        fill: 'both'
+      }).finished.catch(() => {});
+    } else {
+      await sleep(CONFIG.fireCompressionResultMs);
+    }
+
+    logFireEvent('fire-wild-compress', { ...carryover, targetIndex });
+    return carryover;
   }
 
   function chooseFireWildPosition() {
@@ -863,6 +1053,44 @@
     });
 
     return index;
+  }
+
+  async function animateFireWildEntry(index) {
+    if (index == null) return;
+    const cell = el.board.querySelector(`[data-index="${index}"]`);
+    if (!cell || !Element.prototype.animate) return;
+
+    await cell.animate([
+      { transform: 'translate3d(0,-35%,0) scale(1.38)', opacity: .15, filter: 'brightness(1.7)' },
+      { transform: 'translate3d(0,4%,0) scale(1.08)', opacity: 1, filter: 'brightness(1.35)' },
+      { transform: 'translate3d(0,0,0) scale(1)', opacity: 1, filter: 'brightness(1)' }
+    ], {
+      duration: CONFIG.fireWildEntryMs,
+      easing: 'cubic-bezier(.16,.82,.24,1)',
+      fill: 'both'
+    }).finished.catch(() => {});
+  }
+
+  async function pulseFireSymbols(indices, kind = 'ignite') {
+    if (!indices?.length || !Element.prototype.animate) return;
+
+    const animations = indices.map((index, rank) => {
+      const cell = el.board.querySelector(`[data-index="${index}"]`);
+      if (!cell) return Promise.resolve();
+
+      return cell.animate([
+        { transform: 'scale(.92)', filter: 'brightness(1)' },
+        { transform: 'scale(1.12)', filter: kind === 'reignite' ? 'brightness(1.65)' : 'brightness(1.45)' },
+        { transform: 'scale(1)', filter: 'brightness(1)' }
+      ], {
+        duration: 420,
+        delay: rank * 34,
+        easing: 'cubic-bezier(.2,.8,.24,1)',
+        fill: 'both'
+      }).finished.catch(() => {});
+    });
+
+    await Promise.all(animations);
   }
 
   function igniteFiveAlarmFreshSymbols(excluded = new Set()) {
@@ -1113,6 +1341,10 @@
       : `${result.spread.length} NEW SYMBOL${result.spread.length === 1 ? '' : 'S'}`;
 
     await showFireEvent('FIRE SPREAD', detail);
+    await pulseFireSymbols(
+      [...result.spread, ...result.reignited],
+      result.reignited.length ? 'reignite' : 'ignite'
+    );
     return result;
   }
 
@@ -1194,6 +1426,7 @@
     for (let spinNumber = 1; spinNumber <= definition.freeSpins; spinNumber++) {
       state.freeSpinsRemaining = definition.freeSpins - spinNumber + 1;
       resetFireEventState();
+      state.compressionResultIndex = null;
 
       // 5-Alarm persists ONE compressed Fire Wild, never the prior host symbols.
       const incomingFireWild = tier === 5 && state.fireWildCarryover
@@ -1219,6 +1452,7 @@
 
         fireWildIndex = placeFireWild(incomingFireWild);
         renderBoard();
+        await animateFireWildEntry(fireWildIndex);
 
         setMessage(
           'FIRE WILD ENTERS',
@@ -1252,6 +1486,7 @@
             'FRESH IGNITION',
             `${freshIgnitions.length} NEW 2× BURNING SYMBOL${freshIgnitions.length === 1 ? '' : 'S'}`
           );
+          await pulseFireSymbols(freshIgnitions, 'ignite');
           await sleep(CONFIG.fireEventPauseMs);
         }
       }
@@ -1292,49 +1527,41 @@
       }
 
       if (tier === 5) {
-        // Final resolved survivors are compressed into ONE carryover Fire Wild.
-        // Lost symbols are already gone and contribute nothing.
-        state.fireWildCarryover = compressFireWildCarryover();
+        // Presentation and math resolve together: normal symbols drop away,
+        // every surviving fire symbol merges into the survivor nearest center,
+        // and the resulting Fire Wild is the uncapped SUM of all survivor multipliers.
+        const compressed = await animateFiveAlarmCompression();
 
-        if (state.fireWildCarryover) {
-          logFireEvent('fire-wild-compress', {
-            ...state.fireWildCarryover
-          });
-
-          if (spinNumber < definition.freeSpins) {
-            const capNote =
-              state.fireWildCarryover.rawMultiplier > CONFIG.fireWildCarryoverCap
-                ? ` · CAPPED FROM ${state.fireWildCarryover.rawMultiplier}×`
-                : '';
-
-            setMessage(
-              'FIRE COMPRESSED',
-              `${state.fireWildCarryover.collectedCount} SURVIVORS → ${state.fireWildCarryover.multiplier}× ${state.fireWildCarryover.state.toUpperCase()} WILD${capNote}`
-            );
-            await sleep(CONFIG.fireEventPauseMs);
-          }
-        } else if (spinNumber < definition.freeSpins) {
-          setMessage('NO FIRE SURVIVED', 'NEXT SPIN STARTS WITH FRESH 2× IGNITION');
+        if (!compressed && spinNumber < definition.freeSpins) {
+          setMessage(
+            'NO FIRE SURVIVED',
+            'NEXT SPIN STARTS WITH FRESH 2× IGNITION'
+          );
           await sleep(CONFIG.fireEventPauseMs);
         }
       }
 
       state.freeSpinsRemaining = definition.freeSpins - spinNumber;
-      renderBoard();
+
+      if (tier !== 5) renderBoard();
+
       setMessage(
-        `${definition.label} · SPIN ${spinNumber} COMPLETE · ${spinX.toFixed(2)}×`,
+        tier === 5 && state.fireWildCarryover
+          ? `${definition.label} · ${state.fireWildCarryover.multiplier}× FIRE WILD BANKED`
+          : `${definition.label} · SPIN ${spinNumber} COMPLETE · ${spinX.toFixed(2)}×`,
         `${state.freeSpinsRemaining} FREE SPINS LEFT`
       );
-      await sleep(420);
+      await sleep(CONFIG.freeSpinEndHoldMs);
     }
 
     setMessage(`${definition.label} COMPLETE`, `${bonusTotalX.toFixed(2)}× BONUS WIN`);
-    await sleep(520);
+    await sleep(780);
 
     state.activeBonusType = 0;
     state.freeSpinsRemaining = 0;
     state.freeSpinsTotal = 0;
     state.fireWildCarryover = null;
+    state.compressionResultIndex = null;
     resetSymbolFire();
     renderBoard();
 
@@ -1395,11 +1622,11 @@
       `${result.wins.length} CLUSTER${result.wins.length === 1 ? '' : 'S'}${fireDetail}`
     );
     showBanner(`+${result.totalX.toFixed(2)}×`);
-    await sleep(560);
+    await sleep(CONFIG.winHoldMs);
     for (const index of winning) {
       el.board.querySelector(`[data-index="${index}"]`)?.classList.add('pop');
     }
-    await sleep(230);
+    await sleep(CONFIG.winPopMs);
   }
 
   function sleep(ms) {
@@ -1447,6 +1674,7 @@
     state.freeSpinsRemaining = 0;
     state.freeSpinsTotal = 0;
     state.fireWildCarryover = null;
+    state.compressionResultIndex = null;
     resetSymbolFire();
 
     // Forced modes only control the qualifying Alarm count.
@@ -1499,7 +1727,7 @@
 
       const definition = BONUS_TIERS[triggeredTier];
       setMessage(`${definition.label} TRIGGERED`, `${definition.freeSpins} FREE SPINS`);
-      await sleep(650);
+      await sleep(CONFIG.bonusTriggerHoldMs);
 
       // Natural, forced-trigger, and large-outcome modes all use this same bonus engine.
       totalX += await runFireBonus(triggeredTier, bet, { profileName });
