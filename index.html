@@ -5,24 +5,24 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <meta name="theme-color" content="#0c0c0d" />
   <title>Firehouse</title>
-  <link rel="stylesheet" href="styles.css?v=center-fire-merge-v021-1" />
+  <link rel="stylesheet" href="styles.css?v=completion-v030-1" />
 </head>
 <body>
   <div class="page-shell">
     <aside class="changelog-panel" aria-label="Game changelog">
       <div class="changelog-kicker">FIREHOUSE BUILD</div>
-      <div class="changelog-version">v0.2.3</div>
+      <div class="changelog-version">v0.3.0</div>
       <div class="changelog-date">September 25, 2026</div>
 
       <div class="changelog-divider"></div>
 
       <strong class="changelog-title">MOST RECENT CHANGES</strong>
       <ul class="changelog-list">
-        <li><strong>Simultaneous Fire Spread</strong><span>Spread chance now rolls once per event. When it hits, every Burning symbol spreads at the same time to all eligible orthogonal neighbors.</span></li>
-        <li><strong>Banked Fire Wild</strong><span>After the center merge, the completed Fire Wild drops to the bottom of that same column and stays there through the round transition.</span></li>
-        <li><strong>Center Fire Merge</strong><span>Normal symbols fall away and all surviving Burning/Smouldering symbols collapse into the fire survivor nearest board center.</span></li>
-        <li><strong>Uncapped Fire Wild</strong><span>The carryover Wild is the straight sum of every surviving fire multiplier with no symbol-X cap.</span></li>
-        <li><strong>Smoother Game Flow</strong><span>Longer gravity, win reads, alarm anticipation, ignition pulses, and stronger Fire Wild transition beats.</span></li>
+        <li><strong>Completion / Polish Pass</strong><span>Central event logging, animation-speed control, runtime recovery, seeded testing, procedural FX, and expanded developer QA tools.</span></li>
+        <li><strong>Backdraft Rebuilt</strong><span>Spray now visibly resolves into Smouldering first, pauses for pressure buildup, then mechanically resolves Backdraft and multiplier doubling.</span></li>
+        <li><strong>Rare Base Fire Teasers</strong><span>Very rare fire events are selected before board generation and use the same symbol-fire engine without payout chasing.</span></li>
+        <li><strong>Tiered Big Wins</strong><span>Configurable BIG / SUPER / MEGA / INFERNO celebrations now count up without altering the resolved outcome.</span></li>
+        <li><strong>Developer QA Console</strong><span>Direct bonuses, fire scenarios, all Spray rows, seeds, speed controls, math profiles, event history, state inspection, and self-tests.</span></li>
       </ul>
     </aside>
 
@@ -43,8 +43,22 @@
         <img class="firehouse-backdrop" src="./assets/background/background.png?v=4" alt="" aria-hidden="true" />
         <img class="firehouse-title-art" src="./assets/ui/title.png?v=1" alt="Firehouse" />
         <div class="logo-safe-area" aria-hidden="true"></div>
+
+        <div id="transitionOverlay" class="transition-overlay" aria-live="polite">
+          <span class="transition-kicker">FIREHOUSE</span>
+          <strong id="transitionTitle">ALARM</strong>
+          <small id="transitionDetail"></small>
+        </div>
+
+        <button id="bigWinOverlay" class="big-win-overlay" type="button" aria-label="Skip win celebration">
+          <span id="bigWinTier" class="big-win-tier">BIG WIN</span>
+          <strong id="bigWinAmount" class="big-win-amount">0.00×</strong>
+          <small>CLICK / TAP TO FINISH COUNT</small>
+        </button>
+
         <div class="board-frame">
           <div id="board" class="board" role="grid" aria-label="7 by 7 Firehouse symbol grid"></div>
+          <div id="boardFx" class="board-fx" aria-hidden="true"></div>
           <div id="winBanner" class="win-banner" aria-live="polite"></div>
         </div>
 
@@ -126,66 +140,180 @@
       <div><span>CLUSTER BIAS</span><strong>54.78%</strong></div>
     </div>
     <p class="dialog-copy">Money-affecting draws use <code>crypto.getRandomValues()</code> when available. The board generator intentionally has a calibrated neighbor-clump probability so 8+ connected groups occur often enough for the displayed low-value paytable to target roughly 96% RTP.</p>
-    <button id="simulateBtn" class="simulate-btn" type="button">RUN 20,000-SPIN SIMULATION</button>
-    <div id="simulationOutput" class="simulation-output">No simulation run yet.</div>
+    <button id="simulateBtn" class="simulate-btn" type="button">RUN 20,000 BASE-GAME SPINS</button>
+    <div id="simulationOutput" class="simulation-output">No simulation run yet. This browser sampler covers the cascade base game only; bonus/fire contribution requires full-model simulation.</div>
     <p class="fine-print">Prototype calibration only. A real-money release would require formal mathematical analysis, jurisdiction-specific testing, and independent certification.</p>
   </dialog>
 
-  <dialog id="debugDialog" class="dialog-shell debug-dialog">
+  <dialog id="debugDialog" class="dialog-shell debug-dialog qa-console">
     <div class="dialog-head">
       <div>
-        <span>PLAY / TEST MODE</span>
-        <h2>Fire Bonus Modes</h2>
+        <span>DEVELOPMENT ONLY · NOT PLAYER-FACING</span>
+        <h2>Firehouse QA Console</h2>
       </div>
-      <button class="dialog-close" id="debugClose" type="button" aria-label="Close game mode menu">×</button>
+      <button class="dialog-close" id="debugClose" type="button" aria-label="Close developer console">×</button>
     </div>
 
     <p class="dialog-copy">
-      Every option below uses the same board generator, cascade engine, win evaluation, fire system,
-      Spray, Backdraft, multiplier math, and Free Spin engine. Forced modes only change the next
-      base-game trigger condition or RNG profile.
+      These controls alter test inputs, probability profiles, or reproducible setup state before resolution.
+      They are not production game controls and should be disabled with <code>CONFIG.debugEnabled = false</code>
+      before a production build.
     </p>
 
-    <div class="debug-status mode-status">
-      <span>NEXT SPIN MODE</span>
-      <strong id="debugGameMode">NORMAL GAME</strong>
-      <small>Forced modes automatically return to Normal Game after one spin.</small>
-    </div>
+    <section class="debug-section">
+      <div class="debug-section-head">
+        <strong>GAME / TRIGGER MODE</strong>
+        <span id="debugGameMode">NORMAL GAME</span>
+      </div>
+      <div class="game-mode-grid">
+        <button class="game-mode-btn normal" data-game-mode="normal" type="button"><strong>NORMAL GAME</strong><span>Natural RNG / triggers.</span></button>
+        <button class="game-mode-btn" data-game-mode="force3" type="button"><strong>FORCE NEXT 3-ALARM</strong><span>Trigger condition only.</span></button>
+        <button class="game-mode-btn" data-game-mode="force4" type="button"><strong>FORCE NEXT 4-ALARM</strong><span>Trigger condition only.</span></button>
+        <button class="game-mode-btn" data-game-mode="force5" type="button"><strong>FORCE NEXT 5-ALARM</strong><span>Trigger condition only.</span></button>
+        <button class="game-mode-btn large" data-game-mode="large" type="button"><strong>FORCE LARGE PROFILE</strong><span>High-outcome inputs; no hard-coded final win.</span></button>
+      </div>
+      <div class="debug-action-row">
+        <button data-debug-action="reset-game" type="button">RESET GAME</button>
+        <button data-debug-action="reset-bonus" type="button">RESET BONUS</button>
+        <button data-debug-action="reset-balance" type="button">RESET BALANCE</button>
+        <button data-debug-action="clear-log" type="button">CLEAR EVENT LOG</button>
+      </div>
+    </section>
 
-    <div class="game-mode-grid">
-      <button class="game-mode-btn normal" data-game-mode="normal" type="button">
-        <strong>NORMAL GAME</strong>
-        <span>Real base-game RNG. Spin until 3/4/5 alarms occur naturally.</span>
-      </button>
+    <section class="debug-section">
+      <div class="debug-section-head">
+        <strong>ANIMATION SPEED</strong>
+        <span>Presentation only</span>
+      </div>
+      <div class="speed-grid">
+        <button data-animation-speed="0.25" type="button">0.25×</button>
+        <button data-animation-speed="0.5" type="button">0.5×</button>
+        <button data-animation-speed="1" class="active" type="button">1×</button>
+        <button data-animation-speed="2" type="button">2×</button>
+        <button data-animation-speed="8" type="button">TURBO</button>
+      </div>
+    </section>
 
-      <button class="game-mode-btn" data-game-mode="force3" type="button">
-        <strong>FORCE 3-ALARM</strong>
-        <span>Next spin triggers 3 alarms → 5 real Free Spins.</span>
-      </button>
+    <section class="debug-section">
+      <div class="debug-section-head">
+        <strong>DIRECT BONUS TESTING</strong>
+        <span>Bypasses purchase / base trigger</span>
+      </div>
+      <div class="debug-action-grid">
+        <button data-debug-action="bonus3" type="button">ENTER 3-ALARM</button>
+        <button data-debug-action="bonus4" type="button">ENTER 4-ALARM</button>
+        <button data-debug-action="bonus5" type="button">ENTER 5-ALARM</button>
+      </div>
 
-      <button class="game-mode-btn" data-game-mode="force4" type="button">
-        <strong>FORCE 4-ALARM</strong>
-        <span>Next spin triggers 4 alarms → 7 real Free Spins.</span>
-      </button>
+      <div class="debug-subhead">DEVELOPMENT BONUS BUY HARNESS</div>
+      <p class="fine-print">Prices below are intentionally blank development inputs, not production pricing.</p>
+      <div class="bonus-buy-grid">
+        <label><span>3-Alarm price (× bet)</span><input id="debugBuyPrice3" type="number" min="0" step="1" placeholder="dev value" /><button data-debug-action="buy3" type="button">TEST BUY</button></label>
+        <label><span>4-Alarm price (× bet)</span><input id="debugBuyPrice4" type="number" min="0" step="1" placeholder="dev value" /><button data-debug-action="buy4" type="button">TEST BUY</button></label>
+        <label><span>5-Alarm price (× bet)</span><input id="debugBuyPrice5" type="number" min="0" step="1" placeholder="dev value" /><button data-debug-action="buy5" type="button">TEST BUY</button></label>
+      </div>
+    </section>
 
-      <button class="game-mode-btn" data-game-mode="force5" type="button">
-        <strong>FORCE 5-ALARM</strong>
-        <span>Next spin triggers 5 alarms → 10 real Free Spins.</span>
-      </button>
+    <section class="debug-section">
+      <div class="debug-section-head">
+        <strong>FIRE / ANIMATION SCENARIOS</strong>
+        <span>Controlled reproduction cases</span>
+      </div>
+      <div class="debug-inline-field">
+        <label for="debugSprayRow">Forced Spray row</label>
+        <select id="debugSprayRow">
+          <option value="0">Row 1</option><option value="1">Row 2</option><option value="2">Row 3</option>
+          <option value="3" selected>Row 4</option><option value="4">Row 5</option><option value="5">Row 6</option><option value="6">Row 7</option>
+        </select>
+      </div>
+      <div class="debug-action-grid scenario-grid">
+        <button data-debug-action="ignite" type="button">COMBUSTION</button>
+        <button data-debug-action="multi-fire" type="button">MULTI-FIRE SPREAD</button>
+        <button data-debug-action="spray" type="button">SPRAY / DRIP</button>
+        <button data-debug-action="backdraft" type="button">BACKDRAFT TRUE</button>
+        <button data-debug-action="failed-backdraft" type="button">BACKDRAFT FALSE</button>
+        <button data-debug-action="extinguish-all" type="button">COMPLETE EXTINGUISH</button>
+        <button data-debug-action="fire-wild-burning" type="button">BURNING WILD 16×</button>
+        <button data-debug-action="fire-wild-smouldering" type="button">SMOULDER WILD 16×</button>
+        <button data-debug-action="fire-wild-high" type="button">HIGH WILD 128×</button>
+        <button data-debug-action="compress" type="button">WILD COMPRESSION</button>
+        <button data-debug-action="big-win" type="button">INFERNO WIN</button>
+        <button data-debug-action="max-intensity" type="button">MAX VISUAL BOARD</button>
+      </div>
+    </section>
 
-      <button class="game-mode-btn large" data-game-mode="large" type="button">
-        <strong>FORCE LARGE OUTCOME</strong>
-        <span>Same mechanics with a high-outcome RNG profile. Final payout is never hard-coded.</span>
-      </button>
-    </div>
+    <section class="debug-section">
+      <div class="debug-section-head">
+        <strong>GAME ENHANCEMENTS</strong>
+        <span>Testing toggles only</span>
+      </div>
+      <div class="debug-toggle-grid">
+        <label><input id="debugGuaranteedFire" type="checkbox" /> Guaranteed rare base Fire</label>
+        <label><input id="debugGuaranteedSpray" type="checkbox" /> Guaranteed 5-Alarm Spray</label>
+        <label><input id="debugHighFireFrequency" type="checkbox" /> Increased Fire / spread</label>
+        <label><input id="debugMaxVisualIntensity" type="checkbox" /> Maximum visual intensity</label>
+        <label><input id="debugConsoleLogging" type="checkbox" /> Detailed console logging</label>
+      </div>
+    </section>
+
+    <section class="debug-section">
+      <div class="debug-section-head">
+        <strong>MATH / RNG CONFIGURATION</strong>
+        <span>Nominal development profiles · simulation required</span>
+      </div>
+      <div class="debug-form-grid">
+        <label><span>Math profile</span>
+          <select id="debugMathProfile">
+            <option value="baseline">Baseline · nominal 96%</option>
+            <option value="lowStress">Low RTP stress · nominal 92%</option>
+            <option value="highStress">High RTP stress · nominal 98%</option>
+            <option value="highVolatility">High volatility · nominal 96%</option>
+          </select>
+        </label>
+        <label><span>Test seed</span><input id="debugSeed" type="text" placeholder="blank = crypto RNG" /></label>
+        <label><span>Clump chance</span><input id="debugClumpChance" type="number" min="0" max="0.98" step="0.01" placeholder="profile" /></label>
+        <label><span>Ignition chance</span><input id="debugIgnitionChance" type="number" min="0" max="1" step="0.01" placeholder="profile" /></label>
+        <label><span>Spread chance</span><input id="debugSpreadChance" type="number" min="0" max="1" step="0.01" placeholder="profile" /></label>
+        <label><span>5-Alarm Spray chance</span><input id="debugSprayChance" type="number" min="0" max="1" step="0.01" placeholder="profile" /></label>
+        <label><span>Bonus symbol weight</span><input id="debugBonusWeight" type="number" min="0" step="0.1" placeholder="profile" /></label>
+        <label><span>Fresh 5-Alarm ignitions</span><input id="debugFreshIgnitions" type="number" min="0" max="10" step="1" placeholder="1" /></label>
+      </div>
+      <div class="debug-subhead">SYMBOL WEIGHTS</div>
+      <div id="debugSymbolWeights" class="symbol-weight-grid"></div>
+      <div class="debug-action-row">
+        <button id="debugApplyMath" type="button">APPLY MATH CONFIG</button>
+        <button id="debugResetMath" type="button">RESET TO BASELINE</button>
+      </div>
+      <pre id="debugMathConfig" class="debug-code-block">Active configuration will appear here.</pre>
+    </section>
+
+    <section class="debug-section">
+      <div class="debug-section-head">
+        <strong>LIVE STATE / EVENT HISTORY</strong>
+        <span>Latest authoritative client-side state</span>
+      </div>
+      <div class="debug-inspector-grid">
+        <div><span>STATE</span><pre id="debugStateInspector" class="debug-code-block">—</pre></div>
+        <div><span>EVENT LOG</span><pre id="debugEventLog" class="debug-code-block event-log">No events recorded yet.</pre></div>
+      </div>
+    </section>
+
+    <section class="debug-section">
+      <div class="debug-section-head">
+        <strong>ENGINE SELF-TEST</strong>
+        <span>Additive multipliers · Spray · Backdraft · Fire Wild · multi-source spread</span>
+      </div>
+      <button id="debugSelfTest" class="simulate-btn" type="button">RUN CORE SELF-TESTS</button>
+      <pre id="debugSelfTestOutput" class="debug-code-block">No self-test run yet.</pre>
+    </section>
 
     <p class="fine-print">
-      Forced trigger modes do not script Free Spin symbols, fire positions, cascades, Backdrafts,
-      multipliers, or final wins. Force Large Outcome biases RNG inputs but still resolves through
-      the same game mechanics.
+      Client-side debug tools are for development only. A real-money implementation requires
+      server-authoritative outcome/state persistence, formal game math, jurisdictional controls,
+      independent lab testing, and a production build with the debug surface disabled.
     </p>
   </dialog>
 
-  <script src="game.js?v=simultaneous-spread-v023-1"></script>
+  <script src="game.js?v=completion-v030-1"></script>
 </body>
 </html>
