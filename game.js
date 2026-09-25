@@ -2,7 +2,7 @@
   'use strict';
 
   const CONFIG = Object.freeze({
-    version: '0.2.1',
+    version: '0.2.2',
     rows: 7,
     cols: 7,
     cells: 49,
@@ -42,6 +42,9 @@
     fireCompressionDropMs: 520,
     fireCompressionMergeMs: 720,
     fireCompressionResultMs: 620,
+    fireWildBankDropMs: 540,
+    fireWildBankBounceMs: 260,
+    fireWildBankHoldMs: 320,
     fireWildEntryMs: 520,
 
     bets: [0.20, 0.50, 1.00, 2.00, 5.00, 10.00]
@@ -879,6 +882,78 @@
       })[0].sourceIndex;
   }
 
+  function bottomIndexInSameColumn(index) {
+    const col = index % CONFIG.cols;
+    return (CONFIG.rows - 1) * CONFIG.cols + col;
+  }
+
+  async function animateBankedFireWildDrop(fromIndex, reducedMotion = false) {
+    if (fromIndex == null) return fromIndex;
+
+    const toIndex = bottomIndexInSameColumn(fromIndex);
+    if (toIndex === fromIndex || reducedMotion || !Element.prototype.animate) {
+      return toIndex;
+    }
+
+    const fromCell = el.board.querySelector(`[data-index="${fromIndex}"]`);
+    const toCell = el.board.querySelector(`[data-index="${toIndex}"]`);
+    if (!fromCell || !toCell) return toIndex;
+
+    const fromRect = fromCell.getBoundingClientRect();
+    const toRect = toCell.getBoundingClientRect();
+    const dx =
+      (toRect.left + toRect.width / 2) -
+      (fromRect.left + fromRect.width / 2);
+    const dy =
+      (toRect.top + toRect.height / 2) -
+      (fromRect.top + fromRect.height / 2);
+
+    setMessage('BANKING FIRE WILD', 'LOCKING CARRYOVER INTO THE BOTTOM ROW');
+
+    await fromCell.animate([
+      {
+        transform: 'translate3d(0,0,0) scale(1)',
+        filter: 'brightness(1.12)',
+        offset: 0
+      },
+      {
+        transform: `translate3d(${dx}px,${dy + 7}px,0) scale(1.045)`,
+        filter: 'brightness(1.38)',
+        offset: .88
+      },
+      {
+        transform: `translate3d(${dx}px,${dy}px,0) scale(1)`,
+        filter: 'brightness(1.2)',
+        offset: 1
+      }
+    ], {
+      duration: CONFIG.fireWildBankDropMs,
+      easing: 'cubic-bezier(.18,.76,.2,1)',
+      fill: 'forwards'
+    }).finished.catch(() => {});
+
+    await fromCell.animate([
+      {
+        transform: `translate3d(${dx}px,${dy}px,0) scale(1)`
+      },
+      {
+        transform: `translate3d(${dx}px,${dy - 9}px,0) scale(.985)`
+      },
+      {
+        transform: `translate3d(${dx}px,${dy + 3}px,0) scale(1.025)`
+      },
+      {
+        transform: `translate3d(${dx}px,${dy}px,0) scale(1)`
+      }
+    ], {
+      duration: CONFIG.fireWildBankBounceMs,
+      easing: 'cubic-bezier(.22,.84,.28,1)',
+      fill: 'forwards'
+    }).finished.catch(() => {});
+
+    return toIndex;
+  }
+
   async function animateFiveAlarmCompression() {
     const survivors = collectSurvivingFire();
     state.compressionResultIndex = null;
@@ -1017,7 +1092,37 @@
       await sleep(CONFIG.fireCompressionResultMs);
     }
 
-    logFireEvent('fire-wild-compress', { ...carryover, targetIndex });
+    // The forged Wild now physically banks to the bottom cell of the SAME column.
+    // This is an end-of-spin presentation/state position only; the next free spin
+    // still builds a completely fresh board before the carryover Wild re-enters.
+    const bottomIndex = await animateBankedFireWildDrop(targetIndex, reducedMotion);
+
+    if (bottomIndex !== targetIndex) {
+      state.board = Array(CONFIG.cells).fill(null);
+      state.symbolFire = createSymbolFireState();
+
+      state.board[bottomIndex] = WILD_KEY;
+      state.symbolFire[bottomIndex] = {
+        state: carryover.state,
+        multiplier: carryover.multiplier
+      };
+
+      state.compressionResultIndex = bottomIndex;
+      renderBoard();
+    }
+
+    setMessage(
+      'FIRE WILD BANKED',
+      `${carryover.multiplier}× · BOTTOM ROW · CARRYOVER READY`
+    );
+    await sleep(CONFIG.fireWildBankHoldMs);
+
+    logFireEvent('fire-wild-compress', {
+      ...carryover,
+      targetIndex,
+      bankedIndex: bottomIndex
+    });
+
     return carryover;
   }
 
