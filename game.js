@@ -79,6 +79,7 @@
     betIndex: 2,
     busy: false,
     lastWinX: 0,
+    forceAlarmOff: false,
     stats: { spins: 0, wagered: 0, won: 0 }
   };
 
@@ -224,9 +225,16 @@
     return { board: next, spawned, movements };
   }
 
-  function spriteMarkup(key, label = '', bonusCount = 0) {
+  function spriteMarkup(key, label = '', bonusCount = 0, forceOff = false) {
     if (key === BONUS_KEY) {
-      const stateClass = bonusCount <= 1 ? 'symbol-bonus-one' : 'symbol-bonus-two';
+      const stateClass = forceOff
+        ? 'symbol-bonus-one'
+        : bonusCount >= 3
+          ? 'symbol-bonus-three'
+          : bonusCount === 2
+            ? 'symbol-bonus-two'
+            : 'symbol-bonus-one';
+
       return `<span class="symbol-sprite symbol-bonus ${stateClass}" role="img" aria-label="${label}"></span>`;
     }
     return `<span class="symbol-sprite symbol-${key}" role="img" aria-label="${label}"></span>`;
@@ -237,9 +245,10 @@
     el.debugAlarmCount.textContent = bonusCount;
     el.debugAlarmState.textContent =
       bonusCount === 0 ? 'NO ALARMS' :
+      state.forceAlarmOff ? 'RESOLVED / OFF STATE' :
       bonusCount === 1 ? 'STATIC / OFF STATE' :
       bonusCount === 2 ? '2-HIT ANIMATION' :
-      '3+ PLACEHOLDER';
+      '3+ ALARM ANIMATION';
   }
 
   function renderBoard() {
@@ -252,7 +261,7 @@
       if (symbol?.wild) classes.push('wild');
       if (symbol?.bonus) classes.push('bonus');
 
-      return `<div class="${classes.join(' ')}" data-index="${index}" role="gridcell" aria-label="${symbol?.label || key}">${spriteMarkup(key, symbol?.label || key, bonusCount)}</div>`;
+      return `<div class="${classes.join(' ')}" data-index="${index}" role="gridcell" aria-label="${symbol?.label || key}">${spriteMarkup(key, symbol?.label || key, bonusCount, state.forceAlarmOff)}</div>`;
     }).join('');
   }
 
@@ -386,13 +395,14 @@
     }
 
     state.board = cleanBoard;
+    state.forceAlarmOff = false;
     renderBoard();
 
     const label =
       count === 0 ? 'NO ALARMS' :
       count === 1 ? '1 ALARM · STATIC' :
       count === 2 ? '2 ALARMS · ANIMATED' :
-      '3 ALARMS · PLACEHOLDER';
+      '3 ALARMS · ANIMATED';
 
     setMessage(`DEBUG · ${label}`, 'VISUAL TEST');
     el.debugDialog?.close();
@@ -444,6 +454,7 @@
     updateUi();
     setMessage('RESPONDING…', 'NEW BOARD');
 
+    state.forceAlarmOff = false;
     state.board = createInitialBoard();
     await renderBoardWithGravity(initialGravityPlan());
 
@@ -461,6 +472,15 @@
       const cascaded = cascadeBoard(state.board, result.remove);
       state.board = cascaded.board;
       await renderBoardWithGravity(cascaded.movements);
+    }
+
+    // Once the board is fully resolved, any non-bonus alarm result settles
+    // back to the static OFF artwork. Three or more alarms remain animated
+    // because that is the bonus state.
+    const endingBonusCount = state.board.filter(key => key === BONUS_KEY).length;
+    if (endingBonusCount > 0 && endingBonusCount < 3) {
+      state.forceAlarmOff = true;
+      renderBoard();
     }
 
     const creditsWon = totalX * bet;
