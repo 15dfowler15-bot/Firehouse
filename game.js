@@ -367,7 +367,7 @@
       await animateGravityPhase(survivorMoves);
 
       if (spawnedMoves.length) {
-        await sleep(500);
+        await sleep(350);
       }
     }
 
