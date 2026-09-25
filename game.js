@@ -186,6 +186,7 @@
       reignited: []
     },
     fireHistory: [],
+    fireCarryover: [],
     sprayVisual: null,
     backdraftFlash: false,
 
@@ -779,6 +780,69 @@
     resetFireEventState();
   }
 
+  function captureFireCarryover() {
+    // Preserve each surviving fire identity individually, in stable board order.
+    // Symbols already removed by wins/cascades are absent from state.symbolFire
+    // and therefore can never enter carryover.
+    return state.symbolFire
+      .map((fire, sourceIndex) => ({
+        sourceIndex,
+        state: fire.state,
+        multiplier: fire.multiplier
+      }))
+      .filter(entry =>
+        entry.state !== FIRE_STATE.NORMAL &&
+        entry.multiplier > 0 &&
+        state.board[entry.sourceIndex] != null
+      );
+  }
+
+  function carryoverTargetIndices(count) {
+    const eligible = state.board
+      .map((symbol, index) =>
+        symbol != null &&
+        state.symbolFire[index].state === FIRE_STATE.NORMAL
+          ? index
+          : -1
+      )
+      .filter(index => index >= 0);
+
+    // RNG only chooses the new hosts. The carryover entries themselves keep
+    // their individual state/multiplier identity and stable order.
+    for (let i = eligible.length - 1; i > 0; i--) {
+      const j = Math.floor(randomFloat() * (i + 1));
+      [eligible[i], eligible[j]] = [eligible[j], eligible[i]];
+    }
+
+    return eligible.slice(0, Math.min(count, eligible.length));
+  }
+
+  function applyFireCarryover(carryover) {
+    if (!carryover.length) return [];
+
+    const targets = carryoverTargetIndices(carryover.length);
+    const applied = [];
+
+    for (let i = 0; i < targets.length; i++) {
+      const targetIndex = targets[i];
+      const entry = carryover[i];
+
+      state.symbolFire[targetIndex] = {
+        state: entry.state,
+        multiplier: entry.multiplier
+      };
+
+      applied.push({
+        targetIndex,
+        state: entry.state,
+        multiplier: entry.multiplier
+      });
+    }
+
+    logFireEvent('carryover-attach', { applied: applied.map(item => ({ ...item })) });
+    return applied;
+  }
+
   function logFireEvent(type, data = {}) {
     state.fireHistory.push({
       type,
@@ -1045,32 +1109,10 @@
   }
 
   function createBonusSpinBoard(tier, profileName = currentRngProfileName()) {
-    const previousBoard = state.board;
-    const previousFire = state.symbolFire;
+    // Every free spin gets a completely fresh board. Even in 5-Alarm, old
+    // host symbols never persist between spins. Only Fire Carryover States do.
     const freshBoard = createInitialBoard({ allowBonus: false, profileName });
-
-    if (tier !== 5) {
-      state.symbolFire = createSymbolFireState();
-      return freshBoard;
-    }
-
-    // 5-Alarm persistence is symbol-based, not cell-based:
-    // only fire-affected symbols survive into the next free spin.
-    // Everything normal rerolls. The affected symbol and its fire metadata remain together.
-    const nextFire = createSymbolFireState();
-
-    for (let index = 0; index < CONFIG.cells; index++) {
-      const fire = previousFire[index];
-      if (!fire || fire.state === FIRE_STATE.NORMAL || previousBoard[index] == null) continue;
-
-      freshBoard[index] = previousBoard[index];
-      nextFire[index] = {
-        state: fire.state,
-        multiplier: fire.multiplier
-      };
-    }
-
-    state.symbolFire = nextFire;
+    state.symbolFire = createSymbolFireState();
     return freshBoard;
   }
 
@@ -1084,6 +1126,7 @@
     state.bonusActive = false;
     state.forceAlarmOff = false;
     state.fireHistory = [];
+    state.fireCarryover = [];
     resetSymbolFire();
 
     let bonusTotalX = 0;
@@ -1097,7 +1140,12 @@
       state.freeSpinsRemaining = definition.freeSpins - spinNumber + 1;
       resetFireEventState();
 
-      // Build the actual free-spin board first so fire is attached to real symbols.
+      // 5-Alarm carryover is state-only. The old host symbols are already gone.
+      // A completely fresh board is generated before carryover reattaches.
+      const incomingCarryover = tier === 5
+        ? state.fireCarryover.map(entry => ({ ...entry }))
+        : [];
+
       state.board = createBonusSpinBoard(tier, profileName);
 
       setMessage(
@@ -1105,6 +1153,23 @@
         `${state.freeSpinsRemaining} INCLUDING THIS SPIN`
       );
       await renderBoardWithGravity(initialGravityPlan());
+
+      if (tier === 5 && incomingCarryover.length) {
+        setMessage(
+          'FIRE CARRYOVER',
+          `${incomingCarryover.length} SURVIVING FIRE STATE${incomingCarryover.length === 1 ? '' : 'S'}`
+        );
+        await sleep(CONFIG.fireEventPauseMs);
+
+        const attached = applyFireCarryover(incomingCarryover);
+        renderBoard();
+
+        setMessage(
+          'FIRE REATTACHED',
+          `${attached.length} NEW HOST SYMBOL${attached.length === 1 ? '' : 'S'}`
+        );
+        await sleep(CONFIG.fireEventPauseMs);
+      }
 
       const profile = currentRngProfile(profileName);
 
@@ -1158,6 +1223,23 @@
         await resolveSprayEvent(profileName);
       }
 
+      if (tier === 5) {
+        // Snapshot ONLY final resolved survivors. This occurs after all wins,
+        // cascades, spread, Spray, Smouldering conversion, and Backdraft.
+        state.fireCarryover = captureFireCarryover();
+        logFireEvent('carryover-capture', {
+          carryover: state.fireCarryover.map(entry => ({ ...entry }))
+        });
+
+        if (spinNumber < definition.freeSpins && state.fireCarryover.length) {
+          setMessage(
+            'FIRE SURVIVES',
+            `${state.fireCarryover.length} STATE${state.fireCarryover.length === 1 ? '' : 'S'} BANKED FOR NEXT SPIN`
+          );
+          await sleep(CONFIG.fireEventPauseMs);
+        }
+      }
+
       state.freeSpinsRemaining = definition.freeSpins - spinNumber;
       renderBoard();
       setMessage(
@@ -1173,6 +1255,7 @@
     state.activeBonusType = 0;
     state.freeSpinsRemaining = 0;
     state.freeSpinsTotal = 0;
+    state.fireCarryover = [];
     resetSymbolFire();
     renderBoard();
 
@@ -1284,6 +1367,7 @@
     state.activeBonusType = 0;
     state.freeSpinsRemaining = 0;
     state.freeSpinsTotal = 0;
+    state.fireCarryover = [];
     resetSymbolFire();
 
     // Forced modes only control the qualifying Alarm count.
