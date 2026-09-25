@@ -12,6 +12,13 @@
     bonusAnticipationPauseMs: 500,
     bonusAnticipationStepMs: 100,
     maxBonusAnticipation: 5,
+
+    // Prototype fire tuning. Mechanics are authoritative; these rates are easy to rebalance later.
+    fireThreeIgnitionChance: 0.35,
+    fireSpreadChance: 0.42,
+    fireFiveSprayChance: 0.45,
+    fireEventPauseMs: 260,
+
     bets: [0.20, 0.50, 1.00, 2.00, 5.00, 10.00]
   });
 
@@ -85,6 +92,25 @@
     image.src = src;
   }
 
+  const FIRE_STATE = Object.freeze({
+    NORMAL: 'normal',
+    BURNING: 'burning',
+    SMOULDERING: 'smouldering'
+  });
+
+  const BONUS_TIERS = Object.freeze({
+    3: Object.freeze({ alarms: 3, freeSpins: 5, label: '3-ALARM' }),
+    4: Object.freeze({ alarms: 4, freeSpins: 7, label: '4-ALARM' }),
+    5: Object.freeze({ alarms: 5, freeSpins: 10, label: '5-ALARM' })
+  });
+
+  function createFireGrid() {
+    return Array.from({ length: CONFIG.cells }, () => ({
+      state: FIRE_STATE.NORMAL,
+      multiplier: 0
+    }));
+  }
+
   const $ = id => document.getElementById(id);
   const el = {
     board: $('board'),
@@ -126,7 +152,23 @@
     lastWinX: 0,
     forceAlarmOff: false,
     bonusActive: false,
-    debugFireCells: new Set(),
+
+    // Fire Bonus state
+    activeBonusType: 0,
+    freeSpinsRemaining: 0,
+    freeSpinsTotal: 0,
+    fireCells: createFireGrid(),
+    fireEvents: {
+      newIgnition: [],
+      spread: [],
+      sprayRows: [],
+      extinguished: [],
+      backdraftEligible: false,
+      backdraftTriggered: false,
+      reignited: []
+    },
+    fireHistory: [],
+
     stats: { spins: 0, wagered: 0, won: 0 }
   };
 
@@ -182,7 +224,7 @@
     return PAY_BANDS.findIndex(band => count >= band.min && count <= band.max);
   }
 
-  function evaluateBoard(board) {
+  function evaluateBoard(board, fireCells = null) {
     const wins = [];
     const remove = new Set();
 
@@ -214,8 +256,28 @@
         const band = payBandIndex(positions.length);
         if (band < 0) continue;
 
-        const amountX = symbol.pays[band];
-        wins.push({ symbol: symbol.key, label: symbol.label, count: positions.length, amountX, positions });
+        const baseAmountX = symbol.pays[band];
+        const fireMultiplierTotal = fireCells
+          ? positions.reduce((sum, index) => {
+              const fireCell = fireCells[index];
+              return sum + (fireCell && fireCell.state !== FIRE_STATE.NORMAL ? fireCell.multiplier : 0);
+            }, 0)
+          : 0;
+
+        // Fire-cell multipliers are additive. A cluster with 2x + 4x + 8x uses 14x.
+        // A cluster touching no fire cells still pays its normal 1x base award.
+        const fireMultiplier = fireMultiplierTotal > 0 ? fireMultiplierTotal : 1;
+        const amountX = baseAmountX * fireMultiplier;
+
+        wins.push({
+          symbol: symbol.key,
+          label: symbol.label,
+          count: positions.length,
+          baseAmountX,
+          fireMultiplier,
+          amountX,
+          positions
+        });
         positions.forEach(index => remove.add(index));
       }
     }
@@ -343,11 +405,14 @@
       if (symbol?.wild) classes.push('wild');
       if (symbol?.bonus) classes.push('bonus');
 
-      const fireOverlay = state.debugFireCells.has(index)
-        ? '<span class="fire-panel-animation" aria-hidden="true"></span>'
+      const fireCell = state.fireCells[index];
+      if (fireCell?.state === FIRE_STATE.BURNING) classes.push('fire-burning');
+      if (fireCell?.state === FIRE_STATE.SMOULDERING) classes.push('fire-smouldering');
+      const fireMarkup = fireCell && fireCell.state !== FIRE_STATE.NORMAL
+        ? `<span class="fire-state-placeholder ${fireCell.state}" aria-hidden="true"><strong>${fireCell.state === FIRE_STATE.BURNING ? 'FIRE' : 'SMOULDER'}</strong><em>${fireCell.multiplier}×</em></span>`
         : '';
 
-      return `<div class="${classes.join(' ')}" data-index="${index}" role="gridcell" aria-label="${symbol?.label || key}">${spriteMarkup(key, symbol?.label || key, bonusCount, state.forceAlarmOff, state.bonusActive)}${fireOverlay}</div>`;
+      return `<div class="${classes.join(' ')}" data-index="${index}" role="gridcell" aria-label="${symbol?.label || key}">${spriteMarkup(key, symbol?.label || key, bonusCount, state.forceAlarmOff, state.bonusActive)}${fireMarkup}</div>`;
     }).join('');
   }
 
@@ -594,79 +659,405 @@
     await sleep(35);
   }
 
-  function randomCellIndex() {
-    return Math.floor(randomFloat() * CONFIG.cells);
-  }
-
-  function randomUniqueCellIndices(count) {
-    const indices = new Set();
-    while (indices.size < Math.min(count, CONFIG.cells)) {
-      indices.add(randomCellIndex());
-    }
-    return [...indices];
-  }
-
-  function randomFireSquare2x2() {
-    const row = Math.floor(randomFloat() * (CONFIG.rows - 1));
-    const col = Math.floor(randomFloat() * (CONFIG.cols - 1));
-    return [
-      row * CONFIG.cols + col,
-      row * CONFIG.cols + col + 1,
-      (row + 1) * CONFIG.cols + col,
-      (row + 1) * CONFIG.cols + col + 1
-    ];
-  }
-
-  function randomWeirdFireShape() {
-    const shapes = [
-      [[0, 0], [1, 0], [2, 0], [2, 1], [1, 2]],
-      [[0, 1], [1, 0], [1, 1], [1, 2], [2, 2]],
-      [[0, 0], [0, 1], [1, 1], [2, 1], [2, 2]],
-      [[0, 2], [1, 2], [1, 1], [2, 1], [2, 0]],
-      [[0, 0], [1, 0], [1, 1], [1, 2], [2, 2], [3, 2]]
-    ];
-
-    const shape = shapes[Math.floor(randomFloat() * shapes.length)];
-    const maxRow = Math.max(...shape.map(([row]) => row));
-    const maxCol = Math.max(...shape.map(([, col]) => col));
-    const baseRow = Math.floor(randomFloat() * (CONFIG.rows - maxRow));
-    const baseCol = Math.floor(randomFloat() * (CONFIG.cols - maxCol));
-
-    return shape.map(([row, col]) =>
-      (baseRow + row) * CONFIG.cols + baseCol + col
-    );
-  }
-
-  function setDebugFirePattern(mode) {
-    if (state.busy) return;
-
-    let indices = [];
-    if (mode === 'solo') indices = randomUniqueCellIndices(1);
-    else if (mode === 'random3') indices = randomUniqueCellIndices(3);
-    else if (mode === 'square') indices = randomFireSquare2x2();
-    else if (mode === 'weird') indices = randomWeirdFireShape();
-
-    state.debugFireCells = new Set(indices);
-    renderBoard();
-
-    const labels = {
-      solo: '1 FIRE · SOLO',
-      random3: '3 FIRES · RANDOM',
-      square: 'FIRE · 2×2 BLOCK',
-      weird: 'FIRE · WEIRD SHAPE',
-      clear: 'FIRE · CLEARED'
+  function resetFireEventState() {
+    state.fireEvents = {
+      newIgnition: [],
+      spread: [],
+      sprayRows: [],
+      extinguished: [],
+      backdraftEligible: false,
+      backdraftTriggered: false,
+      reignited: []
     };
-
-    setMessage(`DEBUG · ${labels[mode] || 'FIRE'}`, 'FIRE ANIMATION');
-    el.debugDialog?.close();
   }
 
-  function clearDebugFire() {
-    if (state.busy) return;
-    state.debugFireCells.clear();
+  function resetFireGrid() {
+    state.fireCells = createFireGrid();
+    resetFireEventState();
+  }
+
+  function logFireEvent(type, data = {}) {
+    state.fireHistory.push({
+      type,
+      bonusType: state.activeBonusType,
+      freeSpinsRemaining: state.freeSpinsRemaining,
+      ...data
+    });
+    if (state.fireHistory.length > 60) state.fireHistory.shift();
+  }
+
+  function burningCells() {
+    return state.fireCells
+      .map((cell, index) => cell.state === FIRE_STATE.BURNING ? index : -1)
+      .filter(index => index >= 0);
+  }
+
+  function smoulderingCells() {
+    return state.fireCells
+      .map((cell, index) => cell.state === FIRE_STATE.SMOULDERING ? index : -1)
+      .filter(index => index >= 0);
+  }
+
+  function randomFrom(items) {
+    if (!items.length) return null;
+    return items[Math.floor(randomFloat() * items.length)];
+  }
+
+  function igniteCell(index, source = 'ignition') {
+    const cell = state.fireCells[index];
+    if (!cell || cell.state === FIRE_STATE.BURNING) return false;
+
+    if (cell.state === FIRE_STATE.NORMAL) {
+      cell.state = FIRE_STATE.BURNING;
+      cell.multiplier = 2;
+      state.fireEvents.newIgnition.push(index);
+      logFireEvent('ignite', { index, multiplier: 2, source });
+      return true;
+    }
+
+    // Normal reignition: retain multiplier, never double here.
+    cell.state = FIRE_STATE.BURNING;
+    state.fireEvents.reignited.push(index);
+    logFireEvent('reignite', { index, multiplier: cell.multiplier, source, backdraft: false });
+    return true;
+  }
+
+  function igniteRandomFireCell(source = 'random-ignition') {
+    const eligible = state.fireCells
+      .map((cell, index) => cell.state !== FIRE_STATE.BURNING ? index : -1)
+      .filter(index => index >= 0);
+
+    const target = randomFrom(eligible);
+    if (target == null) return null;
+    igniteCell(target, source);
+    return target;
+  }
+
+  function spreadFire({ force = false } = {}) {
+    const sources = [...burningCells()];
+    const claimed = new Set();
+    const spread = [];
+    const reignited = [];
+
+    for (const source of sources) {
+      if (!force && randomFloat() >= CONFIG.fireSpreadChance) continue;
+
+      const eligible = orthogonalNeighbors(source).filter(index =>
+        state.fireCells[index].state !== FIRE_STATE.BURNING && !claimed.has(index)
+      );
+      const target = randomFrom(eligible);
+      if (target == null) continue;
+
+      claimed.add(target);
+      const wasSmouldering = state.fireCells[target].state === FIRE_STATE.SMOULDERING;
+      igniteCell(target, 'fire-spread');
+
+      if (wasSmouldering) reignited.push(target);
+      else spread.push(target);
+    }
+
+    state.fireEvents.spread = spread;
+    if (reignited.length) {
+      state.fireEvents.reignited.push(...reignited.filter(index => !state.fireEvents.reignited.includes(index)));
+    }
+
+    if (spread.length || reignited.length) {
+      logFireEvent('spread', { spread: [...spread], reignited: [...reignited] });
+    }
+
+    return { spread, reignited };
+  }
+
+  function randomSprayRows() {
+    const count = 1 + Math.floor(randomFloat() * CONFIG.rows);
+    const rows = Array.from({ length: CONFIG.rows }, (_, row) => row);
+
+    for (let i = rows.length - 1; i > 0; i--) {
+      const j = Math.floor(randomFloat() * (i + 1));
+      [rows[i], rows[j]] = [rows[j], rows[i]];
+    }
+
+    return rows.slice(0, count).sort((a, b) => a - b);
+  }
+
+  function sprayFire(rowsOverride = null) {
+    // IMPORTANT: Backdraft is evaluated ONLY inside this Spray resolution.
+    resetFireEventState();
+
+    const rows = rowsOverride ? [...new Set(rowsOverride)].sort((a, b) => a - b) : randomSprayRows();
+    const rowSet = new Set(rows);
+    const extinguished = [];
+
+    for (let index = 0; index < CONFIG.cells; index++) {
+      const row = Math.floor(index / CONFIG.cols);
+      const cell = state.fireCells[index];
+      if (!rowSet.has(row) || cell.state !== FIRE_STATE.BURNING) continue;
+
+      cell.state = FIRE_STATE.SMOULDERING;
+      cell.multiplier *= 2;
+      extinguished.push(index);
+    }
+
+    state.fireEvents.sprayRows = rows;
+    state.fireEvents.extinguished = extinguished;
+    logFireEvent('spray', { rows: [...rows], extinguished: [...extinguished] });
+
+    const survivingBurning = burningCells();
+    const currentSmouldering = new Set(smoulderingCells());
+
+    const eligible = survivingBurning.length > 0 && survivingBurning.some(index =>
+      orthogonalNeighbors(index).some(neighbor => currentSmouldering.has(neighbor))
+    );
+
+    state.fireEvents.backdraftEligible = eligible;
+
+    if (!eligible) {
+      state.fireEvents.backdraftTriggered = false;
+      return {
+        rows,
+        extinguished,
+        backdraftEligible: false,
+        backdraftTriggered: false,
+        reignited: []
+      };
+    }
+
+    // BACKDRAFT: every smouldering cell doubles again and reignites.
+    const reignited = [];
+    for (const index of currentSmouldering) {
+      const cell = state.fireCells[index];
+      cell.multiplier *= 2;
+      cell.state = FIRE_STATE.BURNING;
+      reignited.push(index);
+    }
+
+    state.fireEvents.backdraftTriggered = true;
+    state.fireEvents.reignited = [...reignited];
+    logFireEvent('backdraft', { reignited: [...reignited] });
+
+    return {
+      rows,
+      extinguished,
+      backdraftEligible: true,
+      backdraftTriggered: true,
+      reignited
+    };
+  }
+
+  async function showFireEvent(title, detail = '') {
     renderBoard();
-    setMessage('DEBUG · FIRE CLEARED', 'FIRE ANIMATION');
+    setMessage(title, detail);
+    await sleep(CONFIG.fireEventPauseMs);
+  }
+
+  async function resolveSpreadOpportunity(force = false) {
+    const result = spreadFire({ force });
+    if (!result.spread.length && !result.reignited.length) return result;
+
+    const detail = result.reignited.length
+      ? `${result.spread.length} NEW · ${result.reignited.length} REIGNITED`
+      : `${result.spread.length} NEW CELL${result.spread.length === 1 ? '' : 'S'}`;
+
+    await showFireEvent('FIRE SPREAD', detail);
+    return result;
+  }
+
+  async function resolveSprayEvent(rowsOverride = null) {
+    const result = sprayFire(rowsOverride);
+    await showFireEvent(
+      'PUT OUT FLAMES',
+      `ROWS ${result.rows.map(row => row + 1).join(', ')} · ${result.extinguished.length} OUT`
+    );
+
+    if (result.backdraftTriggered) {
+      await showFireEvent('BACKDRAFT', `${result.reignited.length} CELLS REIGNITED`);
+      // Newly reignited cells get a normal spread opportunity. This spread cannot itself trigger Backdraft.
+      await resolveSpreadOpportunity(false);
+    }
+
+    return result;
+  }
+
+  function bonusTierFromAlarmCount(count) {
+    if (count >= 5) return 5;
+    if (count === 4) return 4;
+    if (count === 3) return 3;
+    return 0;
+  }
+
+  function createBonusSpinBoard() {
+    // Retrigger behavior is intentionally not added yet. Bonus symbols are replaced
+    // during free spins so the new fire system can be validated independently.
+    return createInitialBoard().map(key => {
+      if (key !== BONUS_KEY) return key;
+      return REGULAR[Math.floor(randomFloat() * REGULAR.length)].key;
+    });
+  }
+
+  async function runFireBonus(tier, bet, { debug = false } = {}) {
+    const definition = BONUS_TIERS[tier];
+    if (!definition) return 0;
+
+    state.activeBonusType = tier;
+    state.freeSpinsTotal = definition.freeSpins;
+    state.freeSpinsRemaining = definition.freeSpins;
+    state.bonusActive = false;
+    state.forceAlarmOff = false;
+    state.fireHistory = [];
+    resetFireGrid();
+
+    let bonusTotalX = 0;
+
+    await showFireEvent(
+      `${definition.label} BONUS`,
+      `${definition.freeSpins} FREE SPINS`
+    );
+
+    for (let spinNumber = 1; spinNumber <= definition.freeSpins; spinNumber++) {
+      state.freeSpinsRemaining = definition.freeSpins - spinNumber + 1;
+      resetFireEventState();
+
+      // 3- and 4-Alarm rounds are self-contained. 5-Alarm is the persistent-fire tier.
+      if (tier !== 5) resetFireGrid();
+
+      if (tier === 3) {
+        if (randomFloat() < CONFIG.fireThreeIgnitionChance) {
+          igniteRandomFireCell('3-alarm-ignition');
+          await showFireEvent('IGNITION', `FREE SPIN ${spinNumber}`);
+        }
+      } else if (tier === 4) {
+        igniteRandomFireCell('4-alarm-round-start');
+        await showFireEvent('ROUND IGNITION', `FREE SPIN ${spinNumber}`);
+      } else if (tier === 5 && burningCells().length === 0) {
+        // Complete extinguishes do not cause Backdraft. A later independent ignition
+        // can restart fire and may reignite Smouldering cells without doubling them.
+        igniteRandomFireCell('5-alarm-restart');
+        await showFireEvent('NEW IGNITION', `FREE SPIN ${spinNumber}`);
+      }
+
+      state.board = createBonusSpinBoard();
+      setMessage(
+        `${definition.label} · FREE SPIN ${spinNumber}/${definition.freeSpins}`,
+        `${state.freeSpinsRemaining} INCLUDING THIS SPIN`
+      );
+      await renderBoardWithGravity(initialGravityPlan());
+
+      // Fire gets an opportunity to spread once the new board is in place.
+      await resolveSpreadOpportunity(false);
+
+      let spinX = 0;
+      let cascadeNumber = 0;
+
+      while (cascadeNumber < CONFIG.maxCascades) {
+        const result = evaluateBoard(state.board, state.fireCells);
+        if (!result.wins.length) break;
+
+        cascadeNumber++;
+        spinX += result.totalX;
+        bonusTotalX += result.totalX;
+        await animateWin(result, cascadeNumber);
+
+        const cascaded = cascadeBoard(state.board, result.remove);
+        state.board = cascaded.board;
+        await renderBoardWithGravity(cascaded.movements, { isCascade: false });
+
+        // Fire spread after each cascade uses the same normal spread/reignition rules.
+        await resolveSpreadOpportunity(false);
+      }
+
+      if (tier === 4) {
+        // Every 4-Alarm round ends with Spray.
+        await resolveSprayEvent();
+      } else if (tier === 5 && randomFloat() < CONFIG.fireFiveSprayChance) {
+        await resolveSprayEvent();
+      }
+
+      state.freeSpinsRemaining = definition.freeSpins - spinNumber;
+      renderBoard();
+      setMessage(
+        `${definition.label} · SPIN ${spinNumber} COMPLETE · ${spinX.toFixed(2)}×`,
+        `${state.freeSpinsRemaining} FREE SPINS LEFT`
+      );
+      await sleep(420);
+    }
+
+    setMessage(`${definition.label} COMPLETE`, `${bonusTotalX.toFixed(2)}× BONUS WIN`);
+    await sleep(520);
+
+    state.activeBonusType = 0;
+    state.freeSpinsRemaining = 0;
+    state.freeSpinsTotal = 0;
+
+    if (!debug) {
+      resetFireGrid();
+      renderBoard();
+    }
+
+    return bonusTotalX;
+  }
+
+  async function runDebugFireBonus(tier) {
+    if (state.busy) return;
+    state.busy = true;
+    updateUi();
     el.debugDialog?.close();
+
+    const totalX = await runFireBonus(tier, CONFIG.bets[state.betIndex], { debug: true });
+
+    setMessage(`DEBUG · ${BONUS_TIERS[tier].label} COMPLETE`, `${totalX.toFixed(2)}× · STATE PRESERVED`);
+    state.busy = false;
+    updateUi();
+  }
+
+  async function runDebugFireAction(action) {
+    if (state.busy) return;
+    el.debugDialog?.close();
+
+    if (action === 'clear') {
+      resetFireGrid();
+      renderBoard();
+      setMessage('DEBUG · FIRE STATE CLEARED', 'NORMAL CELLS');
+      return;
+    }
+
+    if (action === 'ignite') {
+      resetFireEventState();
+      const index = igniteRandomFireCell('debug');
+      renderBoard();
+      setMessage('DEBUG · IGNITION', index == null ? 'NO ELIGIBLE CELL' : `CELL ${index + 1} · 2×/STORED`);
+      return;
+    }
+
+    if (action === 'spread') {
+      if (!burningCells().length) igniteRandomFireCell('debug-seed');
+      await resolveSpreadOpportunity(true);
+      return;
+    }
+
+    if (action === 'spray') {
+      if (!burningCells().length) {
+        igniteRandomFireCell('debug-spray-seed');
+        igniteRandomFireCell('debug-spray-seed');
+        igniteRandomFireCell('debug-spray-seed');
+      }
+      await resolveSprayEvent();
+      return;
+    }
+
+    if (action === 'backdraft') {
+      resetFireGrid();
+
+      // Deterministic setup: row 4 gets sprayed; row 3 fire survives directly above it.
+      // An older Smouldering cell elsewhere proves Backdraft affects ALL Smouldering cells.
+      state.fireCells[17] = { state: FIRE_STATE.BURNING, multiplier: 2 };
+      state.fireCells[24] = { state: FIRE_STATE.BURNING, multiplier: 2 };
+      state.fireCells[10] = { state: FIRE_STATE.SMOULDERING, multiplier: 4 };
+
+      renderBoard();
+      setMessage('DEBUG · BACKDRAFT SETUP', 'SPRAYING ROW 4');
+      await sleep(300);
+      await resolveSprayEvent([3]);
+    }
   }
 
   const DEBUG_BONUS_POSITIONS = Object.freeze([
@@ -744,6 +1135,8 @@
 
     state.busy = true;
     state.forceAlarmOff = false;
+    state.activeBonusType = 0;
+    resetFireGrid();
     updateUi();
     el.debugDialog?.close();
 
@@ -769,6 +1162,8 @@
 
     state.busy = true;
     state.forceAlarmOff = false;
+    state.activeBonusType = 0;
+    resetFireGrid();
     updateUi();
     el.debugDialog?.close();
 
@@ -819,6 +1214,8 @@
     state.board = cleanBoard;
     state.forceAlarmOff = false;
     state.bonusActive = false;
+    state.activeBonusType = 0;
+    resetFireGrid();
     renderBoard();
 
     const label =
@@ -848,7 +1245,16 @@
     for (const index of winning) {
       el.board.querySelector(`[data-index="${index}"]`)?.classList.add('win');
     }
-    setMessage(`CASCADE ${cascadeNumber} · ${result.totalX.toFixed(2)}×`, `${result.wins.length} CLUSTER${result.wins.length === 1 ? '' : 'S'}`);
+
+    const boosted = result.wins.filter(win => win.fireMultiplier > 1);
+    const fireDetail = boosted.length
+      ? ` · FIRE ${boosted.map(win => `${win.fireMultiplier}×`).join(' + ')}`
+      : '';
+
+    setMessage(
+      `CASCADE ${cascadeNumber} · ${result.totalX.toFixed(2)}×`,
+      `${result.wins.length} CLUSTER${result.wins.length === 1 ? '' : 'S'}${fireDetail}`
+    );
     showBanner(`+${result.totalX.toFixed(2)}×`);
     await sleep(560);
     for (const index of winning) {
@@ -879,7 +1285,11 @@
 
     state.forceAlarmOff = false;
     state.bonusActive = false;
-    state.debugFireCells.clear();
+    state.activeBonusType = 0;
+    state.freeSpinsRemaining = 0;
+    state.freeSpinsTotal = 0;
+    resetFireGrid();
+
     state.board = createInitialBoard();
     await renderBoardWithGravity(initialGravityPlan());
 
@@ -899,25 +1309,39 @@
       await renderBoardWithGravity(cascaded.movements, { isCascade: true });
     }
 
-    // Once the board is fully resolved, any non-bonus alarm result settles
-    // back to the static OFF artwork. Three or more alarms remain animated
-    // because that is the bonus state.
     const endingBonusCount = state.board.filter(key => key === BONUS_KEY).length;
+    const triggeredTier = bonusTierFromAlarmCount(endingBonusCount);
+
     if (endingBonusCount > 0 && endingBonusCount < 3) {
       state.forceAlarmOff = true;
       state.bonusActive = false;
       renderBoard();
-    } else if (endingBonusCount >= 3) {
+    } else if (triggeredTier) {
       state.forceAlarmOff = false;
       state.bonusActive = true;
       renderBoard();
+
+      const definition = BONUS_TIERS[triggeredTier];
+      setMessage(`${definition.label} TRIGGERED`, `${definition.freeSpins} FREE SPINS`);
+      await sleep(650);
+
+      totalX += await runFireBonus(triggeredTier, bet);
     }
 
     const creditsWon = totalX * bet;
     state.balance += creditsWon;
     state.stats.won += creditsWon;
     state.lastWinX = totalX;
-    setMessage(totalX > 0 ? `TOTAL WIN ${totalX.toFixed(2)}×` : 'NO WIN', cascadeNumber ? `${cascadeNumber} CASCADE${cascadeNumber === 1 ? '' : 'S'}` : 'READY');
+
+    setMessage(
+      totalX > 0 ? `TOTAL WIN ${totalX.toFixed(2)}×` : 'NO WIN',
+      triggeredTier
+        ? `${BONUS_TIERS[triggeredTier].label} COMPLETE`
+        : cascadeNumber
+          ? `${cascadeNumber} CASCADE${cascadeNumber === 1 ? '' : 'S'}`
+          : 'READY'
+    );
+
     state.busy = false;
     updateUi();
   }
@@ -1017,12 +1441,12 @@
     button.addEventListener('click', () => runDebugBonusChain(Number(button.dataset.bonusChainTest)));
   });
 
-  document.querySelectorAll('[data-fire-debug]').forEach(button => {
-    button.addEventListener('click', () => {
-      const mode = button.dataset.fireDebug;
-      if (mode === 'clear') clearDebugFire();
-      else setDebugFirePattern(mode);
-    });
+  document.querySelectorAll('[data-fire-bonus-test]').forEach(button => {
+    button.addEventListener('click', () => runDebugFireBonus(Number(button.dataset.fireBonusTest)));
+  });
+
+  document.querySelectorAll('[data-fire-action]').forEach(button => {
+    button.addEventListener('click', () => runDebugFireAction(button.dataset.fireAction));
   });
 
   renderPaytable();
