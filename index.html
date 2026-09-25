@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <meta name="theme-color" content="#0c0c0d" />
   <title>Firehouse</title>
-  <link rel="stylesheet" href="styles.css?v=fire-bonus-system-1" />
+  <link rel="stylesheet" href="styles.css?v=symbol-fire-modes-1" />
 </head>
 <body>
   <main class="app" id="app">
@@ -17,25 +17,9 @@
       <div class="header-actions">
         <button class="small-btn" id="paytableBtn" type="button">PAYTABLE</button>
         <button class="small-btn" id="mathBtn" type="button">MATH</button>
-        <button class="small-btn debug-header-btn" id="debugBtn" type="button">DEBUG</button>
+        <button class="small-btn debug-header-btn" id="debugBtn" type="button">MODE</button>
       </div>
     </header>
-    <section class="alarm-debug-inline" aria-label="Alarm debug controls">
-      <div class="alarm-debug-inline-head">
-        <div>
-          <span>DEBUG</span>
-          <strong>ALARM STATES</strong>
-        </div>
-        <small>Visual test only</small>
-      </div>
-      <div class="alarm-debug-inline-buttons">
-        <button data-alarm-count="1" type="button">1 · OFF</button>
-        <button data-alarm-count="2" type="button">2 · ANIMATE</button>
-        <button data-alarm-count="3" type="button">3+ · ANIMATE</button>
-        <button data-alarm-count="0" type="button">CLEAR</button>
-      </div>
-    </section>
-
     <section class="machine" aria-label="Firehouse slot game">
       <div class="firehouse-stage" aria-label="Firehouse background stage">
         <img class="firehouse-backdrop" src="./assets/background/background.png?v=4" alt="" aria-hidden="true" />
@@ -131,95 +115,58 @@
   <dialog id="debugDialog" class="dialog-shell debug-dialog">
     <div class="dialog-head">
       <div>
-        <span>DEVELOPMENT TOOLS</span>
-        <h2>Bonus / Fire Debug</h2>
+        <span>PLAY / TEST MODE</span>
+        <h2>Fire Bonus Modes</h2>
       </div>
-      <button class="dialog-close" id="debugClose" type="button" aria-label="Close debug menu">×</button>
+      <button class="dialog-close" id="debugClose" type="button" aria-label="Close game mode menu">×</button>
     </div>
 
-    <p class="dialog-copy">Test alarm landings plus the Fire Bonus state machine without changing paid-spin wager statistics. Fire visuals are placeholders while mechanics are being built.</p>
+    <p class="dialog-copy">
+      Every option below uses the same board generator, cascade engine, win evaluation, fire system,
+      Spray, Backdraft, multiplier math, and Free Spin engine. Forced modes only change the next
+      base-game trigger condition or RNG profile.
+    </p>
 
-    <div class="debug-status">
-      <span>VISIBLE ALARMS</span>
-      <strong id="debugAlarmCount">0</strong>
-      <small id="debugAlarmState">OFF STATE</small>
+    <div class="debug-status mode-status">
+      <span>NEXT SPIN MODE</span>
+      <strong id="debugGameMode">NORMAL GAME</strong>
+      <small>Forced modes automatically return to Normal Game after one spin.</small>
     </div>
 
-    <div class="alarm-debug-grid">
-      <button class="alarm-debug-btn" data-alarm-count="1" type="button">
-        <strong>1 ALARM</strong>
-        <span>Static / off</span>
+    <div class="game-mode-grid">
+      <button class="game-mode-btn normal" data-game-mode="normal" type="button">
+        <strong>NORMAL GAME</strong>
+        <span>Real base-game RNG. Spin until 3/4/5 alarms occur naturally.</span>
       </button>
-      <button class="alarm-debug-btn" data-alarm-count="2" type="button">
-        <strong>2 ALARMS</strong>
-        <span>Animated sprite</span>
+
+      <button class="game-mode-btn" data-game-mode="force3" type="button">
+        <strong>FORCE 3-ALARM</strong>
+        <span>Next spin triggers 3 alarms → 5 real Free Spins.</span>
       </button>
-      <button class="alarm-debug-btn" data-alarm-count="3" type="button">
-        <strong>3+ ALARMS</strong>
-        <span>3+ alarm animation</span>
+
+      <button class="game-mode-btn" data-game-mode="force4" type="button">
+        <strong>FORCE 4-ALARM</strong>
+        <span>Next spin triggers 4 alarms → 7 real Free Spins.</span>
       </button>
-      <button class="alarm-debug-btn clear" data-alarm-count="0" type="button">
-        <strong>CLEAR</strong>
-        <span>No alarms</span>
+
+      <button class="game-mode-btn" data-game-mode="force5" type="button">
+        <strong>FORCE 5-ALARM</strong>
+        <span>Next spin triggers 5 alarms → 10 real Free Spins.</span>
+      </button>
+
+      <button class="game-mode-btn large" data-game-mode="large" type="button">
+        <strong>FORCE LARGE OUTCOME</strong>
+        <span>Same mechanics with a high-outcome RNG profile. Final payout is never hard-coded.</span>
       </button>
     </div>
 
-    <section class="debug-feature-section">
-      <div class="debug-feature-head">
-        <strong>BONUS LANDING TESTS</strong>
-        <span>Single refill · force 1–5 alarm landings</span>
-      </div>
-      <div class="debug-test-grid">
-        <button data-bonus-drop-test="1" type="button">1 BONUS DROP</button>
-        <button data-bonus-drop-test="2" type="button">2 BONUS DROPS</button>
-        <button data-bonus-drop-test="3" type="button">3 BONUS DROPS</button>
-        <button data-bonus-drop-test="4" type="button">4 BONUS DROPS</button>
-        <button data-bonus-drop-test="5" type="button">5 BONUS DROPS</button>
-      </div>
-    </section>
-
-    <section class="debug-feature-section">
-      <div class="debug-feature-head">
-        <strong>CASCADE CHAIN TESTS</strong>
-        <span>Start at 1 alarm · add one alarm per winning cascade</span>
-      </div>
-      <div class="debug-test-grid">
-        <button data-bonus-chain-test="1" type="button">CHAIN TO 1</button>
-        <button data-bonus-chain-test="2" type="button">CHAIN TO 2</button>
-        <button data-bonus-chain-test="3" type="button">CHAIN TO 3</button>
-        <button data-bonus-chain-test="4" type="button">CHAIN TO 4</button>
-        <button data-bonus-chain-test="5" type="button">CHAIN TO 5</button>
-      </div>
-    </section>
-    <section class="debug-feature-section">
-      <div class="debug-feature-head">
-        <strong>FIRE BONUS SYSTEM</strong>
-        <span>Mechanics test · placeholder visuals</span>
-      </div>
-      <div class="debug-test-grid">
-        <button data-fire-bonus-test="3" type="button">RUN 3-ALARM</button>
-        <button data-fire-bonus-test="4" type="button">RUN 4-ALARM</button>
-        <button data-fire-bonus-test="5" type="button">RUN 5-ALARM</button>
-      </div>
-    </section>
-
-    <section class="debug-feature-section">
-      <div class="debug-feature-head">
-        <strong>FIRE STATE EVENTS</strong>
-        <span>Test state transitions directly</span>
-      </div>
-      <div class="debug-test-grid">
-        <button data-fire-action="ignite" type="button">IGNITE</button>
-        <button data-fire-action="spread" type="button">SPREAD</button>
-        <button data-fire-action="spray" type="button">SPRAY</button>
-        <button data-fire-action="backdraft" type="button">BACKDRAFT TEST</button>
-        <button data-fire-action="clear" type="button">CLEAR FIRE</button>
-      </div>
-    </section>
-
-    <p class="fine-print">Debug placement is visual-only. It does not award a bonus or alter the production RNG math.</p>
+    <p class="fine-print">
+      Forced trigger modes do not script Free Spin symbols, fire positions, cascades, Backdrafts,
+      multipliers, or final wins. Force Large Outcome biases RNG inputs but still resolves through
+      the same game mechanics.
+    </p>
   </dialog>
 
-  <script src="game.js?v=fire-bonus-system-1"></script>
+  <script src="game.js?v=symbol-fire-modes-1"></script>
 </body>
 </html>
