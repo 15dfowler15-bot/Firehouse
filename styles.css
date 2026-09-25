@@ -43,7 +43,7 @@ button{font:inherit}
 .symbol-chief{background-image:url('assets/symbols/chief.png')}
 .symbol-bonus-one{background-image:url('assets/symbols/bonus-1.png?v=1');background-size:contain}
 .symbol-bonus-two{background-image:url('assets/symbols/bonus-2-sprite.png?v=2');background-size:700% auto;background-position:0 50%;animation:bonusTwoAlarm .42s steps(1,end) infinite alternate}
-.symbol-bonus-three{background-image:url('assets/symbols/bonus3+.png?v=1');background-size:700% auto;background-position:.1261% 43.58%;animation:bonusThreeAlarm .72s steps(1,end) infinite}
+.symbol-bonus-three{background-image:url('assets/symbols/bonus3+.png?v=2');background-size:700% auto;background-repeat:no-repeat;background-position:0.4209% 43.58%;animation:bonusThreeAlarm .72s steps(1,end) infinite}
 .cell.drop{animation:drop .34s cubic-bezier(.2,.85,.35,1.2)}
 .cell.win{z-index:2;border-color:#ffc55c;filter:brightness(1.28);animation:winPulse .46s ease-in-out 2;box-shadow:0 0 16px rgba(255,164,55,.35),inset 0 0 12px rgba(255,139,44,.2)}
 .cell.pop{animation:pop .25s ease forwards}
@@ -90,19 +90,19 @@ code{color:#f0c377}
   85.8%,100%{background-position:99.4874% 45.4714%}
 }
 @keyframes bonusThreeAlarm{
-  0%{background-position:.1261% 43.58%}
-  8.333%{background-position:16.6463% 43.58%}
-  16.667%{background-position:33.3089% 43.58%}
-  25%{background-position:49.9715% 43.58%}
-  33.333%{background-position:33.3089% 43.58%}
-  41.667%{background-position:16.6463% 43.58%}
-  50%{background-position:.1261% 43.58%}
-  58.333%{background-position:66.6341% 43.58%}
-  66.667%{background-position:83.2967% 43.58%}
-  75%{background-position:99.9593% 43.58%}
-  83.333%{background-position:83.2967% 43.58%}
-  91.667%{background-position:66.6341% 43.58%}
-  100%{background-position:.1261% 43.58%}
+  0%{background-position:0.4209% 43.58%}
+  8.333%{background-position:16.9207% 43.58%}
+  16.667%{background-position:33.4932% 43.58%}
+  25%{background-position:50% 43.58%}
+  33.333%{background-position:33.4932% 43.58%}
+  41.667%{background-position:16.9207% 43.58%}
+  50%{background-position:0.4209% 43.58%}
+  58.333%{background-position:66.5666% 43.58%}
+  66.667%{background-position:83.0691% 43.58%}
+  75%{background-position:99.6075% 43.58%}
+  83.333%{background-position:83.0691% 43.58%}
+  91.667%{background-position:66.5666% 43.58%}
+  100%{background-position:0.4209% 43.58%}
 }
 @keyframes drop{0%{transform:translateY(-45%) scale(.92);opacity:.15}100%{transform:none;opacity:1}}@keyframes winPulse{50%{transform:scale(1.055)}}@keyframes pop{to{transform:scale(.25);opacity:0;filter:brightness(1.7)}}@keyframes banner{0%{opacity:0;transform:translate(-50%,-50%) scale(.78)}20%,72%{opacity:1;transform:translate(-50%,-50%) scale(1)}100%{opacity:0;transform:translate(-50%,-50%) scale(1.06)}}
 @media(max-width:680px){.alarm-debug-grid{grid-template-columns:1fr 1fr}.alarm-debug-inline-buttons{grid-template-columns:1fr 1fr}.app{padding:9px 9px 26px}.brand h1{font-size:25px}.small-btn{height:34px;padding:0 8px}.machine{padding:5px}.board-frame{left:18%;top:29.3%;width:64%;padding:3px}.board{gap:3px}.cell{border-radius:7px}.firehouse-stage>.controls{left:1.5%;right:1.5%;bottom:1%;grid-template-columns:1.05fr .9fr 1.08fr 1fr;gap:3px}.readout{min-height:44px;padding:5px 6px;border-radius:8px}.readout span,.bet-control span{font-size:6px;letter-spacing:.08em}.readout strong{font-size:11px;margin-top:2px}.bet-control{height:44px;border-radius:8px}.bet-control button{min-width:20px;font-size:15px}.bet-control strong{font-size:11px}.spin-btn{height:44px;border-radius:9px}.spin-btn span{font-size:14px}.spin-btn small{font-size:8px}.session-strip{grid-template-columns:1fr 1fr}.rule-grid,.math-cards{grid-template-columns:1fr 1fr}.status-line{font-size:8px}.symbol-sprite{width:96%;height:96%}}
