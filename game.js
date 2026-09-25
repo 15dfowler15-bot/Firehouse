@@ -1684,7 +1684,12 @@
       profileName
     });
 
-    await renderBoardWithGravity(initialGravityPlan());
+    // Anticipation belongs on the actual base-game trigger drop too, not only
+    // on cascade refills. The board outcome is already generated; this only
+    // changes reveal timing.
+    await renderBoardWithGravity(initialGravityPlan(), {
+      forceAnticipation: true
+    });
 
     let totalX = 0;
     let cascadeNumber = 0;
