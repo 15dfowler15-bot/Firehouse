@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <meta name="theme-color" content="#0c0c0d" />
   <title>Firehouse</title>
-  <link rel="stylesheet" href="styles.css?v=bonus3-50pct-faster-1" />
+  <link rel="stylesheet" href="styles.css?v=bonus-anticipation-1" />
 </head>
 <body>
   <main class="app" id="app">
@@ -164,9 +164,37 @@
       </button>
     </div>
 
+    <section class="debug-feature-section">
+      <div class="debug-feature-head">
+        <strong>BONUS LANDING TESTS</strong>
+        <span>Single refill · force 1–5 alarm landings</span>
+      </div>
+      <div class="debug-test-grid">
+        <button data-bonus-drop-test="1" type="button">1 BONUS DROP</button>
+        <button data-bonus-drop-test="2" type="button">2 BONUS DROPS</button>
+        <button data-bonus-drop-test="3" type="button">3 BONUS DROPS</button>
+        <button data-bonus-drop-test="4" type="button">4 BONUS DROPS</button>
+        <button data-bonus-drop-test="5" type="button">5 BONUS DROPS</button>
+      </div>
+    </section>
+
+    <section class="debug-feature-section">
+      <div class="debug-feature-head">
+        <strong>CASCADE CHAIN TESTS</strong>
+        <span>Start at 1 alarm · add one alarm per winning cascade</span>
+      </div>
+      <div class="debug-test-grid">
+        <button data-bonus-chain-test="1" type="button">CHAIN TO 1</button>
+        <button data-bonus-chain-test="2" type="button">CHAIN TO 2</button>
+        <button data-bonus-chain-test="3" type="button">CHAIN TO 3</button>
+        <button data-bonus-chain-test="4" type="button">CHAIN TO 4</button>
+        <button data-bonus-chain-test="5" type="button">CHAIN TO 5</button>
+      </div>
+    </section>
+
     <p class="fine-print">Debug placement is visual-only. It does not award a bonus or alter the production RNG math.</p>
   </dialog>
 
-  <script src="game.js?v=bonus3-images-lowercase-1"></script>
+  <script src="game.js?v=bonus-anticipation-1"></script>
 </body>
 </html>
