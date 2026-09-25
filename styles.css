@@ -31,6 +31,7 @@ button{font:inherit}
 .cell{position:relative;display:grid;place-items:center;min-width:0;aspect-ratio:1/1;border:1px solid #303034;border-radius:10px;background:linear-gradient(145deg,#202023,#111113);overflow:hidden;box-shadow:inset 0 0 0 1px rgba(255,255,255,.015);transition:transform .15s ease,border-color .15s ease,filter .15s ease,opacity .15s ease}
 .cell.wild{border-color:#765e2c;background:linear-gradient(145deg,#28200f,#15120b)}
 .cell.bonus{border-color:#7b3127;background:linear-gradient(145deg,#251313,#120d0d)}
+.fire-panel-animation{position:absolute;z-index:5;inset:-5%;pointer-events:none;background-image:url('assets/animations/fire.png?v=1');background-repeat:no-repeat;background-size:500% 500%;background-position:0 0;filter:drop-shadow(0 0 4px rgba(255,92,25,.32));animation:firePanelFrames 1.5s steps(1,end) infinite}
 .board.bonus-anticipation .cell:not(.anticipation-column){filter:brightness(.62) saturate(.78)}
 .cell.anticipation-column{z-index:3;border-color:#ff7048;background:linear-gradient(145deg,#361711,#160e0d);box-shadow:0 0 14px rgba(255,91,45,.48),inset 0 0 13px rgba(255,99,52,.14);animation:anticipationPulse .48s ease-in-out infinite alternate}
 .symbol-sprite{width:92%;height:92%;background-repeat:no-repeat;background-position:center;background-size:contain;filter:drop-shadow(0 3px 3px rgba(0,0,0,.55));transform:scale(.94)}
@@ -89,9 +90,38 @@ button{font:inherit}
 .debug-test-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
 .debug-test-grid button{min-height:42px;padding:6px;border:1px solid #623528;border-radius:8px;background:#21100d;color:#f2dfd6;font-size:8px;font-weight:900;letter-spacing:.035em;cursor:pointer}
 .debug-test-grid button:hover{border-color:#c2603d;background:#30140e}
+.fire-debug-grid button{border-color:#7a3823;background:linear-gradient(180deg,#2c130d,#180d0a)}
+.fire-debug-grid button:hover{border-color:#e16c36;background:linear-gradient(180deg,#3c190f,#21100b)}
 .dialog-shell{overflow-y:auto}
 .math-dialog{max-width:650px}.math-cards{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin:12px 0}.math-cards div{padding:10px;border:1px solid #303034;border-radius:10px;background:#0d0d0f}.math-cards strong{display:block;margin-top:4px;font-size:15px}.simulate-btn{width:100%;min-height:44px;border:1px solid #b9633f;border-radius:11px;background:#311711;color:#fff;font-weight:900;cursor:pointer}.simulate-btn:disabled{opacity:.55}.simulation-output{margin-top:9px;padding:10px;border:1px solid #2b2b2f;border-radius:10px;background:#09090a;color:#d6cec7;font-size:12px;line-height:1.5;min-height:43px}.fine-print{font-size:10px;color:#77706b;line-height:1.45}
 code{color:#f0c377}
+@keyframes firePanelFrames{
+  0%,3.999%{background-position:0% 0%}
+  4%,7.999%{background-position:25% 0%}
+  8%,11.999%{background-position:50% 0%}
+  12%,15.999%{background-position:75% 0%}
+  16%,19.999%{background-position:100% 0%}
+  20%,23.999%{background-position:0% 25%}
+  24%,27.999%{background-position:25% 25%}
+  28%,31.999%{background-position:50% 25%}
+  32%,35.999%{background-position:75% 25%}
+  36%,39.999%{background-position:100% 25%}
+  40%,43.999%{background-position:0% 50%}
+  44%,47.999%{background-position:25% 50%}
+  48%,51.999%{background-position:50% 50%}
+  52%,55.999%{background-position:75% 50%}
+  56%,59.999%{background-position:100% 50%}
+  60%,63.999%{background-position:0% 75%}
+  64%,67.999%{background-position:25% 75%}
+  68%,71.999%{background-position:50% 75%}
+  72%,75.999%{background-position:75% 75%}
+  76%,79.999%{background-position:100% 75%}
+  80%,83.999%{background-position:0% 100%}
+  84%,87.999%{background-position:25% 100%}
+  88%,91.999%{background-position:50% 100%}
+  92%,95.999%{background-position:75% 100%}
+  96%,99.999%{background-position:100% 100%}
+}
 @keyframes anticipationPulse{from{box-shadow:0 0 7px rgba(255,91,45,.28),inset 0 0 8px rgba(255,99,52,.08)}to{box-shadow:0 0 20px rgba(255,91,45,.72),inset 0 0 16px rgba(255,99,52,.2)}}
 @keyframes bonusTwoImages{
   0%,19.999%{background-image:url('assets/animations/bonus1/Bonus21.png?v=1')}
