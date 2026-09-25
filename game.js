@@ -843,6 +843,11 @@
   }
 
   function spreadFire({ force = false, profileName = currentRngProfileName() } = {}) {
+    // A spread opportunity starts from the Burning symbols that existed at the
+    // beginning of this event. If a source spreads, EVERY orthogonally touching
+    // non-Burning symbol ignites. Newly ignited symbols wait until the next
+    // spread opportunity before spreading again, preventing one event from
+    // recursively consuming the entire board.
     const sources = [...burningSymbols()];
     const claimed = new Set();
     const spread = [];
@@ -852,27 +857,32 @@
     for (const source of sources) {
       if (!force && randomFloat() >= chance) continue;
 
-      const eligible = orthogonalNeighbors(source).filter(index =>
+      const touching = orthogonalNeighbors(source).filter(index =>
         state.symbolFire[index].state !== FIRE_STATE.BURNING &&
         !claimed.has(index) &&
         state.board[index] != null
       );
 
-      const target = randomFrom(eligible);
-      if (target == null) continue;
+      for (const target of touching) {
+        claimed.add(target);
 
-      claimed.add(target);
-      const wasSmouldering = state.symbolFire[target].state === FIRE_STATE.SMOULDERING;
-      igniteSymbol(target, 'fire-spread');
+        const wasSmouldering =
+          state.symbolFire[target].state === FIRE_STATE.SMOULDERING;
 
-      if (wasSmouldering) reignited.push(target);
-      else spread.push(target);
+        igniteSymbol(target, 'fire-spread');
+
+        if (wasSmouldering) reignited.push(target);
+        else spread.push(target);
+      }
     }
 
     state.fireEvents.spread = [...spread];
 
     if (spread.length || reignited.length) {
-      logFireEvent('spread', { spread: [...spread], reignited: [...reignited] });
+      logFireEvent('spread', {
+        spread: [...spread],
+        reignited: [...reignited]
+      });
     }
 
     return { spread, reignited };
