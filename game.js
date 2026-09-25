@@ -54,15 +54,15 @@
   }
 
   const BONUS_THREE_FRAMES = Object.freeze([
-    'assets/animations/bonus2/Bonus31.png',
-    'assets/animations/bonus2/Bonus32.png',
-    'assets/animations/bonus2/Bonus33.png',
-    'assets/animations/bonus2/Bonus34.png',
-    'assets/animations/bonus2/Bonus35.png',
-    'assets/animations/bonus2/Bonus36.png',
-    'assets/animations/bonus2/Bonus37.png',
-    'assets/animations/bonus2/Bonus38.png',
-    'assets/animations/bonus2/Bonus39.png'
+    'assets/animations/bonus2/bonus31.png',
+    'assets/animations/bonus2/bonus32.png',
+    'assets/animations/bonus2/bonus33.png',
+    'assets/animations/bonus2/bonus34.png',
+    'assets/animations/bonus2/bonus35.png',
+    'assets/animations/bonus2/bonus36.png',
+    'assets/animations/bonus2/bonus37.png',
+    'assets/animations/bonus2/bonus38.png',
+    'assets/animations/bonus2/bonus39.png'
   ]);
 
   for (const src of BONUS_THREE_FRAMES) {
