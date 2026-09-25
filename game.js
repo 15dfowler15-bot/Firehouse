@@ -849,6 +849,11 @@
 
   function renderBoard(visualBonusCount = null) {
     const actualBonusCount = state.board.reduce((count, key) => count + (key === BONUS_KEY ? 1 : 0), 0);
+    recordEvent('symbol-drop', {
+      movementCount: movements.size,
+      isCascade,
+      forceAnticipation
+    });
     const bonusCount = visualBonusCount ?? actualBonusCount;
     updateAlarmDebugStatus(bonusCount);
     el.board.classList.toggle('backdraft-flash', state.backdraftFlash);
@@ -945,8 +950,8 @@
     const gap = parseFloat(computedBoard.rowGap || computedBoard.gap) || 0;
     const pitch = firstCell.getBoundingClientRect().height + gap;
 
-    const columnStagger = CONFIG.gravityColumnStaggerMs;
-    const fallDuration = CONFIG.gravityFallDurationMs;
+    const columnStagger = scaledMs(CONFIG.gravityColumnStaggerMs);
+    const fallDuration = scaledMs(CONFIG.gravityFallDurationMs);
 
     function prepareMoves(items) {
       for (const { cell, move } of items) {
@@ -1028,7 +1033,7 @@
           return rowB - rowA;
         });
 
-      await animateItems(items, (_, rank) => rank * CONFIG.bonusAnticipationStepMs);
+      await animateItems(items, (_, rank) => scaledMs(rank * CONFIG.bonusAnticipationStepMs));
       const before = visibleBonusCount;
       visibleBonusCount += bonusCountForItems(items);
       applyBonusVisualCount(visibleBonusCount);
@@ -1095,6 +1100,10 @@
 
       clearAnticipationColumns();
       setMessage('BONUS ANTICIPATION', `${visibleBonusCount} ALARMS`);
+      recordEvent('near-bonus', {
+        visibleBonusCount,
+        remainingColumns: [...remainingColumns]
+      });
       await sleep(CONFIG.bonusAnticipationPauseMs);
       setAnticipationColumns(remainingColumns);
       slowMode = true;
@@ -1121,6 +1130,10 @@
         if (result.landedBonus && result.after >= 3 && remainingColumns.length) {
           clearAnticipationColumns();
           setMessage('BONUS ANTICIPATION', `${result.after} ALARMS`);
+          recordEvent('near-bonus-escalation', {
+            visibleBonusCount: result.after,
+            remainingColumns: [...remainingColumns]
+          });
           await sleep(CONFIG.bonusAnticipationPauseMs);
           setAnticipationColumns(remainingColumns);
         }
@@ -1323,7 +1336,7 @@
             { transform: `translate3d(0,${dropDistance}px,0) scale(.94)`, opacity: 0 }
           ], {
             duration: scaledMs(CONFIG.fireCompressionDropMs),
-            delay: row * 18 + col * 8,
+            delay: scaledMs(row * 18 + col * 8),
             easing: 'cubic-bezier(.42,0,.72,.26)',
             fill: 'forwards'
           }).finished.catch(() => {});
@@ -1518,7 +1531,7 @@
         { transform: 'scale(1)', filter: 'brightness(1)' }
       ], {
         duration: scaledMs(420),
-        delay: rank * 34,
+        delay: scaledMs(rank * 34),
         easing: 'cubic-bezier(.2,.8,.24,1)',
         fill: 'both'
       }).finished.catch(() => {});
@@ -1843,6 +1856,7 @@
 
     state.sprayVisual = { row, phase: 'drip' };
     renderBoard();
+    recordEvent('water-drip', { row, affectedRows: Array.from({ length: CONFIG.rows - row - 1 }, (_, offset) => row + 1 + offset) });
     setMessage('PUT OUT FLAMES', `WATER DRIPPING BELOW ROW ${row + 1}`);
     const dripIndices = [];
     for (let r = row + 1; r < CONFIG.rows; r++) {
@@ -1972,7 +1986,7 @@
 
   function createBonusSpinBoard(tier, profileName = currentRngProfileName()) {
     // Every free spin gets a completely fresh board. Even in 5-Alarm, old
-    // host symbols never persist between spins. Only Fire Carryover States do.
+    // host symbols never persist between spins. Only the compressed Fire Wild carries forward.
     const freshBoard = createInitialBoard({ allowBonus: false, profileName });
     state.symbolFire = createSymbolFireState();
     return freshBoard;
@@ -2695,6 +2709,9 @@
         await pulseFireSymbols(burningSymbols(), 'ignite');
       }
 
+      if (state.debugEnhancements.maxVisualIntensity) {
+        document.documentElement.classList.add('max-visual-intensity');
+      }
       recordEvent('debug-action', { action });
       updateDebugInspector();
     } finally {
