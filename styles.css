@@ -43,7 +43,7 @@ button{font:inherit}
 .symbol-chief{background-image:url('assets/symbols/chief.png')}
 .symbol-bonus-one{background-image:url('assets/symbols/bonus-1.png?v=1');background-size:contain}
 .symbol-bonus-two{background-image:url('assets/animations/bonus1/Bonus21.png?v=1');background-size:contain;background-position:center;animation:bonusTwoImages .36s steps(1,end) infinite alternate}
-.symbol-bonus-three{background-image:url('assets/animations/bonus2/bonus31.png?v=1');background-size:contain;background-position:center;background-repeat:no-repeat;animation:bonusThreeImages 1.224s steps(1,end) infinite}
+.symbol-bonus-three{background-image:url('assets/animations/bonus2/bonus31.png?v=1');background-size:contain;background-position:center;background-repeat:no-repeat;animation:bonusThreeImages 0.816s steps(1,end) infinite}
 .cell.drop{animation:drop .34s cubic-bezier(.2,.85,.35,1.2)}
 .cell.win{z-index:2;border-color:#ffc55c;filter:brightness(1.28);animation:winPulse .46s ease-in-out 2;box-shadow:0 0 16px rgba(255,164,55,.35),inset 0 0 12px rgba(255,139,44,.2)}
 .cell.pop{animation:pop .25s ease forwards}
