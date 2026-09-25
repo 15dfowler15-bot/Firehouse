@@ -94,7 +94,6 @@
   const WILD_KEY = 'wild';
   const BONUS_KEY = 'bonus';
   const NON_CLUMP_KEYS = new Set([WILD_KEY, BONUS_KEY]);
-  const TOTAL_WEIGHT = SYMBOLS.reduce((sum, symbol) => sum + symbol.weight, 0);
 
   const BONUS_TWO_FRAMES = Object.freeze([
     'assets/animations/bonus1/Bonus21.png',
@@ -734,18 +733,6 @@
     return `<span class="symbol-sprite symbol-${key}" role="img" aria-label="${label}"></span>`;
   }
 
-  function updateAlarmDebugStatus(bonusCount) {
-    if (!el.debugAlarmCount || !el.debugAlarmState) return;
-    el.debugAlarmCount.textContent = bonusCount;
-    el.debugAlarmState.textContent =
-      bonusCount === 0 ? 'NO ALARMS' :
-      state.bonusActive ? 'BONUS ACTIVE' :
-      state.forceAlarmOff ? 'RESOLVED / OFF STATE' :
-      bonusCount === 1 ? 'STATIC / OFF STATE' :
-      bonusCount === 2 ? '2-HIT ANIMATION' :
-      '3+ ALARM ANIMATION';
-  }
-
   function bonusStateClass(bonusCount, forceOff = false, bonusActive = state.bonusActive) {
     if (bonusActive) return 'symbol-bonus-active';
     if (forceOff || bonusCount <= 1) return 'symbol-bonus-one';
@@ -759,7 +746,6 @@
       sprite.classList.remove('symbol-bonus-one', 'symbol-bonus-two', 'symbol-bonus-three', 'symbol-bonus-active');
       sprite.classList.add(stateClass);
     });
-    updateAlarmDebugStatus(bonusCount);
   }
 
   function setAnticipationColumns(columns) {
@@ -860,7 +846,6 @@
   function renderBoard(visualBonusCount = null) {
     const actualBonusCount = state.board.reduce((count, key) => count + (key === BONUS_KEY ? 1 : 0), 0);
     const bonusCount = visualBonusCount ?? actualBonusCount;
-    updateAlarmDebugStatus(bonusCount);
     el.board.classList.toggle('backdraft-flash', state.backdraftFlash);
 
     el.board.innerHTML = state.board.map((key, index) => {
@@ -2561,6 +2546,21 @@
         `DEV BUY ${BONUS_TIERS[tier].label} COMPLETE`,
         `${bonusX.toFixed(2)}× · DEV PRICE ${priceX.toFixed(1)}×`
       );
+    } catch (error) {
+      state.lastError = error instanceof Error ? error.message : String(error);
+
+      // This is a development harness, not a financial transaction system.
+      // Restore the test cost if the harness itself fails before completion.
+      state.balance += cost;
+      state.stats.wagered = Math.max(0, state.stats.wagered - cost);
+
+      recordEvent('runtime-error', {
+        message: state.lastError,
+        scope: 'debug-bonus-buy',
+        devCostRefunded: cost
+      });
+      cancelVisualEffects();
+      setMessage('DEV BUY TEST ERROR', `${state.lastError.slice(0, 70)} · DEV COST RESTORED`);
     } finally {
       state.busy = false;
       updateUi();
@@ -2681,7 +2681,21 @@
         await resolveSprayEvent('normal', 3);
       }
 
-      if (action === 'failed-backdraft' || action === 'extinguish-all') {
+      if (action === 'failed-backdraft') {
+        prepareDebugBoard();
+
+        // One Burning symbol survives above the water, but it is deliberately
+        // nowhere near the lower Smouldering group. This verifies a genuine
+        // partial-extinguish / Backdraft FALSE state rather than full extinguish.
+        setFireStateAt(0, FIRE_STATE.BURNING, 8);
+        [24, 25, 31, 32].forEach(index => {
+          setFireStateAt(index, FIRE_STATE.BURNING, 4);
+        });
+        renderBoard();
+        await resolveSprayEvent('normal', 3);
+      }
+
+      if (action === 'extinguish-all') {
         prepareDebugBoard();
         [24, 25, 31, 32].forEach(index => {
           setFireStateAt(index, FIRE_STATE.BURNING, 4);
