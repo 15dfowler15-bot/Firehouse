@@ -42,7 +42,7 @@ button{font:inherit}
 .symbol-dalmatian{background-image:url('assets/symbols/dalmatian.png')}
 .symbol-chief{background-image:url('assets/symbols/chief.png')}
 .symbol-bonus-one{background-image:url('assets/symbols/bonus-1.png?v=1');background-size:contain}
-.symbol-bonus-two{background-image:url('assets/symbols/bonus-2-sprite.png?v=2');background-size:700% auto;background-position:0 50%;animation:bonusTwoAlarm .42s steps(1,end) infinite alternate}
+.symbol-bonus-two{background-image:url('assets/animations/bonus1/Bonus21.png?v=1');background-size:contain;background-position:center;animation:bonusTwoImages .30s steps(1,end) infinite alternate}
 .symbol-bonus-three{background-image:url('assets/symbols/bonus3+.png?v=2');background-size:700% auto;background-repeat:no-repeat;background-position:0.4209% 43.58%;animation:bonusThreeAlarm .72s steps(1,end) infinite}
 .cell.drop{animation:drop .34s cubic-bezier(.2,.85,.35,1.2)}
 .cell.win{z-index:2;border-color:#ffc55c;filter:brightness(1.28);animation:winPulse .46s ease-in-out 2;box-shadow:0 0 16px rgba(255,164,55,.35),inset 0 0 12px rgba(255,139,44,.2)}
@@ -80,14 +80,12 @@ button{font:inherit}
 .alarm-debug-btn.clear{border-color:#39393d;background:#141416}
 .math-dialog{max-width:650px}.math-cards{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin:12px 0}.math-cards div{padding:10px;border:1px solid #303034;border-radius:10px;background:#0d0d0f}.math-cards strong{display:block;margin-top:4px;font-size:15px}.simulate-btn{width:100%;min-height:44px;border:1px solid #b9633f;border-radius:11px;background:#311711;color:#fff;font-weight:900;cursor:pointer}.simulate-btn:disabled{opacity:.55}.simulation-output{margin-top:9px;padding:10px;border:1px solid #2b2b2f;border-radius:10px;background:#09090a;color:#d6cec7;font-size:12px;line-height:1.5;min-height:43px}.fine-print{font-size:10px;color:#77706b;line-height:1.45}
 code{color:#f0c377}
-@keyframes bonusTwoAlarm{
-  0%,14.2%{background-position:0.3615% 44.9717%}
-  14.3%,28.5%{background-position:16.9508% 45.2231%}
-  28.6%,42.8%{background-position:33.4356% 45.3276%}
-  42.9%,57.1%{background-position:49.9386% 45.3609%}
-  57.2%,71.4%{background-position:66.4796% 45.3808%}
-  71.5%,85.7%{background-position:82.9950% 45.4063%}
-  85.8%,100%{background-position:99.4874% 45.4714%}
+@keyframes bonusTwoImages{
+  0%,19.999%{background-image:url('assets/animations/bonus1/Bonus21.png?v=1')}
+  20%,39.999%{background-image:url('assets/animations/bonus1/Bonus22.png?v=1')}
+  40%,59.999%{background-image:url('assets/animations/bonus1/Bonus23.png?v=1')}
+  60%,79.999%{background-image:url('assets/animations/bonus1/Bonus24.png?v=1')}
+  80%,100%{background-image:url('assets/animations/bonus1/Bonus25.png?v=1')}
 }
 @keyframes bonusThreeAlarm{
   0%{background-position:0.4209% 43.58%}
