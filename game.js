@@ -849,11 +849,6 @@
 
   function renderBoard(visualBonusCount = null) {
     const actualBonusCount = state.board.reduce((count, key) => count + (key === BONUS_KEY ? 1 : 0), 0);
-    recordEvent('symbol-drop', {
-      movementCount: movements.size,
-      isCascade,
-      forceAnticipation
-    });
     const bonusCount = visualBonusCount ?? actualBonusCount;
     updateAlarmDebugStatus(bonusCount);
     el.board.classList.toggle('backdraft-flash', state.backdraftFlash);
@@ -914,6 +909,11 @@
     }
 
     const actualBonusCount = state.board.reduce((count, key) => count + (key === BONUS_KEY ? 1 : 0), 0);
+    recordEvent('symbol-drop', {
+      movementCount: movements.size,
+      isCascade,
+      forceAnticipation
+    });
     const spawnedBonusIndices = [...movements.entries()]
       .filter(([index, move]) => move.spawned && state.board[index] === BONUS_KEY)
       .map(([index]) => index);
