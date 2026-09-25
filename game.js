@@ -245,6 +245,9 @@
     mathClose: $('mathClose'),
     simulateBtn: $('simulateBtn'),
     simulationOutput: $('simulationOutput'),
+    mathTargetRtp: $('mathTargetRtp'),
+    mathClumpChance: $('mathClumpChance'),
+    mathActiveProfile: $('mathActiveProfile'),
     debugBtn: $('debugBtn'),
     debugDialog: $('debugDialog'),
     debugClose: $('debugClose'),
@@ -512,6 +515,9 @@
   function weightedSymbolKey({ allowBonus = true, profileName = currentRngProfileName() } = {}) {
     const pool = SYMBOLS.filter(symbol => allowBonus || symbol.key !== BONUS_KEY);
     const total = pool.reduce((sum, symbol) => sum + profiledSymbolWeight(symbol, profileName), 0);
+    if (!Number.isFinite(total) || total <= 0) {
+      throw new Error('Invalid symbol-weight configuration: total weight must be greater than zero.');
+    }
     let roll = randomFloat() * total;
 
     for (const symbol of pool) {
@@ -787,13 +793,17 @@
     const budget = Math.max(0, CONFIG.particleLimit - existing);
     if (!budget) return;
 
+    const effectiveCountPerCell = state.debugEnhancements.maxVisualIntensity
+      ? Math.max(1, countPerCell * 2)
+      : countPerCell;
+
     let created = 0;
     for (const index of indices) {
       const cell = el.board.querySelector(`[data-index="${index}"]`);
       if (!cell) continue;
       const rect = cell.getBoundingClientRect();
 
-      for (let n = 0; n < countPerCell && created < budget; n++) {
+      for (let n = 0; n < effectiveCountPerCell && created < budget; n++) {
         const particle = document.createElement('i');
         particle.className = `fx-particle fx-${type}`;
         const x = rect.left - boardRect.left + rect.width * (0.25 + visualRandomFloat() * 0.5);
@@ -1924,21 +1934,32 @@
   }
 
   function selectConfiguredDebugTier() {
-    const rates = [
+    const rawRates = [
       [5, state.mathOverrides.trigger5Chance],
       [4, state.mathOverrides.trigger4Chance],
       [3, state.mathOverrides.trigger3Chance]
-    ].map(([tier, chance]) => [tier, Number.isFinite(chance) ? clamp(chance, 0, 1) : 0]);
+    ].map(([tier, chance]) => [
+      tier,
+      Number.isFinite(chance) ? clamp(chance, 0, 1) : 0
+    ]);
 
-    const total = rates.reduce((sum, [, chance]) => sum + chance, 0);
-    if (total <= 0) return 0;
+    const rawTotal = rawRates.reduce((sum, [, chance]) => sum + chance, 0);
+    if (rawTotal <= 0) return 0;
+
+    const scale = rawTotal > 1 ? 1 / rawTotal : 1;
+    const rates = rawRates.map(([tier, chance]) => [tier, chance * scale]);
 
     const roll = randomFloat();
     let cursor = 0;
     for (const [tier, chance] of rates) {
       cursor += chance;
       if (roll < cursor) {
-        recordEvent('debug-tier-trigger-selected', { tier, roll, rates: Object.fromEntries(rates) });
+        recordEvent('debug-tier-trigger-selected', {
+          tier,
+          roll,
+          normalized: rawTotal > 1,
+          rates: Object.fromEntries(rates)
+        });
         return tier;
       }
     }
@@ -2396,6 +2417,7 @@
       trigger5Chance: null
     };
     state.symbolWeightOverrides = {};
+    state.debugLogEnabled = false;
     state.debugEnhancements = {
       guaranteedFire: false,
       guaranteedSpray: false,
@@ -2467,6 +2489,7 @@
   async function debugEnterBonus(tier) {
     if (state.busy || !BONUS_TIERS[tier]) return;
 
+    el.debugDialog?.close();
     state.busy = true;
     state.spinId += 1;
     state.currentSpinBaseX = 0;
@@ -2498,6 +2521,7 @@
 
   async function debugBuyBonus(tier) {
     if (state.busy || !BONUS_TIERS[tier]) return;
+    el.debugDialog?.close();
     const priceNode =
       tier === 3 ? el.debugBuyPrice3 :
       tier === 4 ? el.debugBuyPrice4 :
@@ -2545,6 +2569,14 @@
 
   async function runDebugAction(action) {
     if (!CONFIG.debugEnabled) return;
+
+    if (
+      state.busy &&
+      ['reset-game', 'reset-bonus', 'reset-balance', 'clear-log'].includes(action)
+    ) {
+      setMessage('WAIT FOR ACTIVE SEQUENCE', 'RESET BLOCKED TO AVOID STATE RACE');
+      return;
+    }
 
     if (action === 'reset-game') {
       cancelVisualEffects();
@@ -2595,6 +2627,7 @@
     if (action === 'buy5') return debugBuyBonus(5);
 
     if (state.busy) return;
+    el.debugDialog?.close();
     state.busy = true;
     updateUi();
 
@@ -3210,6 +3243,18 @@
     el.statWagered.textContent = state.stats.wagered.toFixed(2);
     el.statWon.textContent = state.stats.won.toFixed(2);
     el.statRtp.textContent = state.stats.wagered > 0 ? `${(100 * state.stats.won / state.stats.wagered).toFixed(1)}%` : '—';
+
+    const activeMath = currentMathConfigSnapshot();
+    if (el.mathTargetRtp) {
+      el.mathTargetRtp.textContent = `${(100 * activeMath.nominalTargetRtp).toFixed(2)}%*`;
+    }
+    if (el.mathClumpChance) {
+      el.mathClumpChance.textContent = `${(100 * activeMath.clumpChance).toFixed(2)}%`;
+    }
+    if (el.mathActiveProfile) {
+      el.mathActiveProfile.textContent = activeMath.label;
+    }
+
     el.spin.disabled = state.busy;
     el.betDown.disabled = state.busy || state.betIndex === 0;
     el.betUp.disabled = state.busy || state.betIndex === CONFIG.bets.length - 1;
