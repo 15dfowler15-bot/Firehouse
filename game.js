@@ -265,7 +265,13 @@
     debugSymbolWeights: $('debugSymbolWeights'),
     debugBuyPrice3: $('debugBuyPrice3'),
     debugBuyPrice4: $('debugBuyPrice4'),
-    debugBuyPrice5: $('debugBuyPrice5')
+    debugBuyPrice5: $('debugBuyPrice5'),
+    debugSelfTestOutput: $('debugSelfTestOutput'),
+    debugConsoleLogging: $('debugConsoleLogging'),
+    debugGuaranteedFire: $('debugGuaranteedFire'),
+    debugGuaranteedSpray: $('debugGuaranteedSpray'),
+    debugHighFireFrequency: $('debugHighFireFrequency'),
+    debugMaxVisualIntensity: $('debugMaxVisualIntensity')
   };
 
   const state = {
@@ -2145,6 +2151,586 @@
     return bonusTotalX;
   }
 
+  function fireWildOnBoard() {
+    for (let index = 0; index < state.board.length; index++) {
+      if (
+        state.board[index] === WILD_KEY &&
+        state.symbolFire[index]?.state !== FIRE_STATE.NORMAL
+      ) {
+        return {
+          index,
+          state: state.symbolFire[index].state,
+          multiplier: state.symbolFire[index].multiplier
+        };
+      }
+    }
+    return null;
+  }
+
+  function currentMathConfigSnapshot() {
+    const preset = activeMathPreset();
+    const profile = currentRngProfile();
+    return {
+      profile: state.mathProfile,
+      label: preset.label,
+      nominalTargetRtp: preset.nominalTargetRtp,
+      volatility: preset.volatility,
+      payoutScale: preset.payoutScale,
+      clumpChance: profile.clumpChance,
+      fireIgnitionChance: profile.fireThreeIgnitionChance,
+      fireSpreadChance: profile.fireSpreadChance,
+      sprayChance: profile.fireFiveSprayChance,
+      bonusWeight: effectiveSymbolWeight(
+        SYMBOLS.find(symbol => symbol.key === BONUS_KEY),
+        currentRngProfileName()
+      ),
+      freshIgnitionCount:
+        state.mathOverrides.freshIgnitionCount ??
+        CONFIG.fireFiveFreshIgnitionCount,
+      seeded: Boolean(state.debugSeed),
+      seed: state.debugSeed || null
+    };
+  }
+
+  function updateDebugInspector() {
+    if (!el.debugStateInspector && !el.debugEventLog && !el.debugMathConfig) return;
+
+    const fireWild = fireWildOnBoard();
+    const inspector = {
+      version: CONFIG.version,
+      spinId: state.spinId,
+      busy: state.busy,
+      mode: state.pendingGameMode,
+      bet: CONFIG.bets[state.betIndex],
+      baseWinX: Number(state.currentSpinBaseX.toFixed(4)),
+      bonusWinX: Number(state.currentSpinBonusX.toFixed(4)),
+      totalKnownX: Number((state.currentSpinBaseX + state.currentSpinBonusX).toFixed(4)),
+      alarmLevel: state.activeBonusType,
+      freeSpinsRemaining: state.freeSpinsRemaining,
+      burningCount: burningSymbols().length,
+      smoulderingCount: smoulderingSymbols().length,
+      fireWildMultiplier: fireWild?.multiplier || state.fireWildCarryover?.multiplier || 0,
+      fireWildState: fireWild?.state || state.fireWildCarryover?.state || null,
+      sprayRow: state.fireEvents.sprayRow,
+      backdraftEligible: state.fireEvents.backdraftEligible,
+      backdraftTriggered: state.fireEvents.backdraftTriggered,
+      cascade: state.currentCascade,
+      rngProfile: currentRngProfileName(),
+      mathProfile: state.mathProfile,
+      animationSpeed: state.animationSpeed,
+      baseFireFeature: state.baseFireFeature,
+      lastError: state.lastError || null
+    };
+
+    if (el.debugStateInspector) {
+      el.debugStateInspector.textContent = JSON.stringify(inspector, null, 2);
+    }
+
+    if (el.debugEventLog) {
+      const recent = state.eventHistory.slice(-28);
+      el.debugEventLog.textContent = recent.length
+        ? recent.map(event => {
+            const fields = { ...event };
+            delete fields.time;
+            const prefix = `#${event.sequence} · S${event.spinId} · ${event.type}`;
+            delete fields.sequence;
+            delete fields.spinId;
+            delete fields.type;
+            return `${prefix} ${Object.keys(fields).length ? JSON.stringify(fields) : ''}`;
+          }).join('\n')
+        : 'No events recorded yet.';
+      el.debugEventLog.scrollTop = el.debugEventLog.scrollHeight;
+    }
+
+    if (el.debugMathConfig) {
+      el.debugMathConfig.textContent = JSON.stringify(currentMathConfigSnapshot(), null, 2);
+    }
+  }
+
+  function setAnimationSpeed(speed) {
+    const normalized = [0.25, 0.5, 1, 2, 8].includes(Number(speed))
+      ? Number(speed)
+      : 1;
+    state.animationSpeed = normalized;
+    document.documentElement.style.setProperty(
+      '--motion-scale',
+      String(1 / normalized)
+    );
+    recordEvent('animation-speed', { speed: normalized });
+    document.querySelectorAll('[data-animation-speed]').forEach(button => {
+      button.classList.toggle(
+        'active',
+        Number(button.dataset.animationSpeed) === normalized
+      );
+    });
+    updateDebugInspector();
+  }
+
+  function renderDebugSymbolWeights() {
+    if (!el.debugSymbolWeights) return;
+    el.debugSymbolWeights.innerHTML = SYMBOLS.map(symbol => {
+      const current =
+        state.symbolWeightOverrides[symbol.key] ??
+        symbol.weight;
+      return `
+        <label class="debug-number-field">
+          <span>${symbol.label}</span>
+          <input
+            type="number"
+            min="0"
+            step="0.1"
+            value="${current}"
+            data-symbol-weight="${symbol.key}"
+          />
+        </label>
+      `;
+    }).join('');
+  }
+
+  function readDebugNumber(id, fallback = null) {
+    const node = document.getElementById(id);
+    if (!node) return fallback;
+    const value = Number(node.value);
+    return Number.isFinite(value) ? value : fallback;
+  }
+
+  function applyDebugMathControls() {
+    if (!CONFIG.debugEnabled) return;
+
+    state.mathProfile =
+      MATH_PROFILES[el.debugMathProfile?.value]
+        ? el.debugMathProfile.value
+        : 'baseline';
+
+    state.mathOverrides.clumpChance = readDebugNumber('debugClumpChance', null);
+    state.mathOverrides.fireIgnitionChance = readDebugNumber('debugIgnitionChance', null);
+    state.mathOverrides.fireSpreadChance = readDebugNumber('debugSpreadChance', null);
+    state.mathOverrides.sprayChance = readDebugNumber('debugSprayChance', null);
+    state.mathOverrides.bonusWeight = readDebugNumber('debugBonusWeight', null);
+    state.mathOverrides.freshIgnitionCount = readDebugNumber('debugFreshIgnitions', null);
+
+    document.querySelectorAll('[data-symbol-weight]').forEach(input => {
+      const value = Number(input.value);
+      if (Number.isFinite(value) && value >= 0) {
+        state.symbolWeightOverrides[input.dataset.symbolWeight] = value;
+      }
+    });
+
+    if (el.debugSeed) setDebugSeed(el.debugSeed.value);
+
+    state.debugLogEnabled = Boolean(el.debugConsoleLogging?.checked);
+    state.debugEnhancements.guaranteedFire = Boolean(el.debugGuaranteedFire?.checked);
+    state.debugEnhancements.guaranteedSpray = Boolean(el.debugGuaranteedSpray?.checked);
+    state.debugEnhancements.highFireFrequency = Boolean(el.debugHighFireFrequency?.checked);
+    state.debugEnhancements.maxVisualIntensity = Boolean(el.debugMaxVisualIntensity?.checked);
+
+    recordEvent('debug-math-applied', currentMathConfigSnapshot());
+    updateDebugInspector();
+    setMessage('DEBUG MATH APPLIED', activeMathPreset().label);
+  }
+
+  function resetDebugMathControls() {
+    state.mathProfile = 'baseline';
+    state.mathOverrides = {
+      clumpChance: null,
+      fireIgnitionChance: null,
+      fireSpreadChance: null,
+      sprayChance: null,
+      bonusWeight: null,
+      freshIgnitionCount: null
+    };
+    state.symbolWeightOverrides = {};
+    state.debugEnhancements = {
+      guaranteedFire: false,
+      guaranteedSpray: false,
+      highFireFrequency: false,
+      maxVisualIntensity: false
+    };
+    setDebugSeed('');
+
+    if (el.debugMathProfile) el.debugMathProfile.value = 'baseline';
+    if (el.debugSeed) el.debugSeed.value = '';
+    if (el.debugConsoleLogging) el.debugConsoleLogging.checked = false;
+    if (el.debugGuaranteedFire) el.debugGuaranteedFire.checked = false;
+    if (el.debugGuaranteedSpray) el.debugGuaranteedSpray.checked = false;
+    if (el.debugHighFireFrequency) el.debugHighFireFrequency.checked = false;
+    if (el.debugMaxVisualIntensity) el.debugMaxVisualIntensity.checked = false;
+
+    for (const [id, value] of [
+      ['debugClumpChance', ''],
+      ['debugIgnitionChance', ''],
+      ['debugSpreadChance', ''],
+      ['debugSprayChance', ''],
+      ['debugBonusWeight', ''],
+      ['debugFreshIgnitions', '']
+    ]) {
+      const node = document.getElementById(id);
+      if (node) node.value = value;
+    }
+
+    renderDebugSymbolWeights();
+    recordEvent('debug-math-reset', {});
+    updateDebugInspector();
+  }
+
+  function prepareDebugBoard() {
+    cancelVisualEffects();
+    state.activeBonusType = 0;
+    state.freeSpinsRemaining = 0;
+    state.freeSpinsTotal = 0;
+    state.fireWildCarryover = null;
+    state.compressionResultIndex = null;
+    state.board = createInitialBoard({
+      allowBonus: false,
+      profileName: 'normal'
+    });
+    state.symbolFire = createSymbolFireState();
+    resetFireEventState();
+    renderBoard();
+  }
+
+  function setFireStateAt(index, fireState, multiplier) {
+    if (
+      index < 0 ||
+      index >= CONFIG.cells ||
+      state.board[index] == null ||
+      state.board[index] === BONUS_KEY
+    ) return false;
+
+    state.symbolFire[index] = {
+      state: fireState,
+      multiplier
+    };
+    return true;
+  }
+
+  async function debugEnterBonus(tier) {
+    if (state.busy || !BONUS_TIERS[tier]) return;
+
+    state.busy = true;
+    state.spinId += 1;
+    state.currentSpinBaseX = 0;
+    state.currentSpinBonusX = 0;
+    updateUi();
+
+    try {
+      recordEvent('debug-direct-bonus', { tier });
+      const bonusX = await runFireBonus(tier, CONFIG.bets[state.betIndex], {
+        profileName: currentRngProfileName()
+      });
+      state.currentSpinBonusX = bonusX;
+      state.lastWinX = bonusX;
+      await presentBigWin(bonusX);
+      setMessage(
+        `DEBUG ${BONUS_TIERS[tier].label} COMPLETE`,
+        `${bonusX.toFixed(2)}× · BALANCE UNCHANGED`
+      );
+    } catch (error) {
+      state.lastError = error instanceof Error ? error.message : String(error);
+      recordEvent('runtime-error', { message: state.lastError, scope: 'debug-bonus' });
+      cancelVisualEffects();
+      setMessage('DEBUG BONUS ERROR', state.lastError.slice(0, 90));
+    } finally {
+      state.busy = false;
+      updateUi();
+    }
+  }
+
+  async function debugBuyBonus(tier) {
+    if (state.busy || !BONUS_TIERS[tier]) return;
+    const priceNode =
+      tier === 3 ? el.debugBuyPrice3 :
+      tier === 4 ? el.debugBuyPrice4 :
+      el.debugBuyPrice5;
+    const priceX = Number(priceNode?.value);
+
+    if (!Number.isFinite(priceX) || priceX <= 0) {
+      setMessage('DEV BUY PRICE REQUIRED', 'ENTER A POSITIVE BET MULTIPLE');
+      return;
+    }
+
+    const bet = CONFIG.bets[state.betIndex];
+    const cost = bet * priceX;
+    if (state.balance < cost) {
+      setMessage('DEV BUY INSUFFICIENT BALANCE', `COST ${cost.toFixed(2)}`);
+      return;
+    }
+
+    state.busy = true;
+    state.spinId += 1;
+    state.balance -= cost;
+    state.stats.wagered += cost;
+    updateUi();
+
+    try {
+      recordEvent('debug-bonus-buy', { tier, priceX, cost });
+      const bonusX = await runFireBonus(tier, bet, {
+        profileName: currentRngProfileName()
+      });
+      const credits = bonusX * bet;
+      state.balance += credits;
+      state.stats.won += credits;
+      state.lastWinX = bonusX;
+      state.currentSpinBonusX = bonusX;
+      await presentBigWin(bonusX);
+      setMessage(
+        `DEV BUY ${BONUS_TIERS[tier].label} COMPLETE`,
+        `${bonusX.toFixed(2)}× · DEV PRICE ${priceX.toFixed(1)}×`
+      );
+    } finally {
+      state.busy = false;
+      updateUi();
+    }
+  }
+
+  async function runDebugAction(action) {
+    if (!CONFIG.debugEnabled) return;
+
+    if (action === 'reset-game') {
+      cancelVisualEffects();
+      state.balance = 1000;
+      state.betIndex = 2;
+      state.stats = { spins: 0, wagered: 0, won: 0 };
+      state.lastWinX = 0;
+      state.currentSpinBaseX = 0;
+      state.currentSpinBonusX = 0;
+      state.eventHistory = [];
+      state.lastError = '';
+      prepareDebugBoard();
+      updateUi();
+      updateDebugInspector();
+      setMessage('GAME RESET', 'DEVELOPMENT STATE CLEARED');
+      return;
+    }
+
+    if (action === 'reset-bonus') {
+      cancelVisualEffects();
+      prepareDebugBoard();
+      state.busy = false;
+      updateUi();
+      setMessage('BONUS STATE RESET', 'READY');
+      return;
+    }
+
+    if (action === 'reset-balance') {
+      state.balance = 1000;
+      state.stats = { spins: 0, wagered: 0, won: 0 };
+      updateUi();
+      recordEvent('debug-balance-reset', {});
+      return;
+    }
+
+    if (action === 'clear-log') {
+      state.eventHistory = [];
+      state.fireHistory = [];
+      updateDebugInspector();
+      return;
+    }
+
+    if (action === 'bonus3') return debugEnterBonus(3);
+    if (action === 'bonus4') return debugEnterBonus(4);
+    if (action === 'bonus5') return debugEnterBonus(5);
+    if (action === 'buy3') return debugBuyBonus(3);
+    if (action === 'buy4') return debugBuyBonus(4);
+    if (action === 'buy5') return debugBuyBonus(5);
+
+    if (state.busy) return;
+    state.busy = true;
+    updateUi();
+
+    try {
+      if (action === 'ignite') {
+        prepareDebugBoard();
+        const index = igniteRandomNormalSymbol('debug-ignition');
+        renderBoard();
+        spawnBoardParticles('ember', index == null ? [] : [index], 5);
+        await pulseFireSymbols(index == null ? [] : [index], 'ignite');
+      }
+
+      if (action === 'multi-fire' || action === 'spread') {
+        prepareDebugBoard();
+        [16, 18, 30].forEach((index, rank) => {
+          setFireStateAt(index, FIRE_STATE.BURNING, 2 * (rank + 1));
+        });
+        renderBoard();
+        await resolveSpreadOpportunity(true, 'normal');
+      }
+
+      if (action === 'spray') {
+        prepareDebugBoard();
+        [9, 17, 24, 31, 39].forEach(index => {
+          setFireStateAt(index, FIRE_STATE.BURNING, 2);
+        });
+        renderBoard();
+        const row = Number(el.debugSprayRow?.value);
+        await resolveSprayEvent('normal', Number.isInteger(row) ? row : 3);
+      }
+
+      if (action === 'backdraft') {
+        prepareDebugBoard();
+        setFireStateAt(17, FIRE_STATE.BURNING, 4);
+        setFireStateAt(24, FIRE_STATE.BURNING, 4);
+        setFireStateAt(25, FIRE_STATE.BURNING, 8);
+        renderBoard();
+        await resolveSprayEvent('normal', 3);
+      }
+
+      if (action === 'failed-backdraft' || action === 'extinguish-all') {
+        prepareDebugBoard();
+        [24, 25, 31, 32].forEach(index => {
+          setFireStateAt(index, FIRE_STATE.BURNING, 4);
+        });
+        renderBoard();
+        await resolveSprayEvent('normal', 3);
+      }
+
+      if (action === 'fire-wild-burning' || action === 'fire-wild-smouldering' || action === 'fire-wild-high') {
+        prepareDebugBoard();
+        const index = 24;
+        state.board[index] = WILD_KEY;
+        state.symbolFire[index] = {
+          state:
+            action === 'fire-wild-smouldering'
+              ? FIRE_STATE.SMOULDERING
+              : FIRE_STATE.BURNING,
+          multiplier: action === 'fire-wild-high' ? 128 : 16
+        };
+        renderBoard();
+        await animateFireWildEntry(index);
+      }
+
+      if (action === 'compress') {
+        prepareDebugBoard();
+        [
+          [8, FIRE_STATE.BURNING, 2],
+          [17, FIRE_STATE.SMOULDERING, 8],
+          [24, FIRE_STATE.BURNING, 16],
+          [32, FIRE_STATE.SMOULDERING, 4],
+          [40, FIRE_STATE.BURNING, 32]
+        ].forEach(([index, fireState, multiplier]) => {
+          setFireStateAt(index, fireState, multiplier);
+        });
+        renderBoard();
+        await animateFiveAlarmCompression();
+      }
+
+      if (action === 'big-win') {
+        prepareDebugBoard();
+        await presentBigWin(168.25);
+      }
+
+      if (action === 'max-intensity') {
+        prepareDebugBoard();
+        for (let index = 0; index < CONFIG.cells; index++) {
+          if (index % 2 === 0 && state.board[index] !== BONUS_KEY) {
+            setFireStateAt(
+              index,
+              index % 4 === 0 ? FIRE_STATE.BURNING : FIRE_STATE.SMOULDERING,
+              2 + (index % 8)
+            );
+          }
+        }
+        renderBoard();
+        spawnBoardParticles('ember', burningSymbols(), 3);
+        spawnBoardParticles('smoke', smoulderingSymbols(), 2);
+        await pulseFireSymbols(burningSymbols(), 'ignite');
+      }
+
+      recordEvent('debug-action', { action });
+      updateDebugInspector();
+    } finally {
+      state.busy = false;
+      updateUi();
+    }
+  }
+
+  function runSelfTests() {
+    const results = [];
+    const check = (name, condition, detail = '') => {
+      results.push({ name, pass: Boolean(condition), detail });
+    };
+
+    const savedBoard = [...state.board];
+    const savedFire = state.symbolFire.map(item => ({ ...item }));
+    const savedEvents = { ...state.fireEvents };
+
+    try {
+      const board = Array(CONFIG.cells).fill('helmet');
+      board.fill('axe', 8);
+      const fire = createSymbolFireState();
+      fire[0] = { state: FIRE_STATE.BURNING, multiplier: 2 };
+      fire[1] = { state: FIRE_STATE.SMOULDERING, multiplier: 4 };
+      const evaluated = evaluateBoard(board, fire);
+      const boosted = evaluated.wins.find(win => win.positions.includes(0) && win.positions.includes(1));
+      check(
+        'Additive fire multiplier',
+        Boolean(boosted && boosted.fireMultiplier >= 6),
+        boosted ? `observed ${boosted.fireMultiplier}×` : 'no boosted win'
+      );
+
+      state.board = createInitialBoard({ allowBonus: false });
+      state.symbolFire = createSymbolFireState();
+      setFireStateAt(17, FIRE_STATE.BURNING, 4);
+      setFireStateAt(24, FIRE_STATE.BURNING, 8);
+      const spray = applySprayToSymbols(3);
+      check('Spray doubles', state.symbolFire[24].multiplier === 16);
+      check('Backdraft eligibility', spray.backdraftEligible === true);
+      const backdraft = resolveBackdraftMechanic();
+      check(
+        'Backdraft doubles again',
+        backdraft.triggered && state.symbolFire[24].multiplier === 32
+      );
+
+      state.board = createInitialBoard({ allowBonus: false });
+      state.symbolFire = createSymbolFireState();
+      setFireStateAt(8, FIRE_STATE.BURNING, 2);
+      setFireStateAt(17, FIRE_STATE.SMOULDERING, 8);
+      setFireStateAt(24, FIRE_STATE.BURNING, 16);
+      const carry = buildFireWildCarryover();
+      check(
+        'Fire Wild sum is uncapped',
+        carry?.multiplier === 26,
+        carry ? `observed ${carry.multiplier}×` : 'no carryover'
+      );
+
+      state.board = createInitialBoard({ allowBonus: false });
+      state.symbolFire = createSymbolFireState();
+      setFireStateAt(16, FIRE_STATE.BURNING, 2);
+      setFireStateAt(18, FIRE_STATE.BURNING, 2);
+      const spread = spreadFire({ force: true, profileName: 'normal' });
+      check(
+        'Multiple fire sources spread',
+        spread.sourcesSpread?.length === 2,
+        `sources ${spread.sourcesSpread?.length || 0}`
+      );
+    } catch (error) {
+      check('Self-test runtime', false, error instanceof Error ? error.message : String(error));
+    } finally {
+      state.board = savedBoard;
+      state.symbolFire = savedFire;
+      state.fireEvents = savedEvents;
+      renderBoard();
+    }
+
+    const passed = results.filter(result => result.pass).length;
+    if (el.debugSelfTestOutput) {
+      el.debugSelfTestOutput.textContent = [
+        `${passed}/${results.length} checks passed`,
+        ...results.map(result =>
+          `${result.pass ? 'PASS' : 'FAIL'} · ${result.name}${result.detail ? ` · ${result.detail}` : ''}`
+        )
+      ].join('\n');
+    }
+
+    recordEvent('self-test', {
+      passed,
+      total: results.length,
+      failures: results.filter(result => !result.pass).map(result => result.name)
+    });
+
+    return results;
+  }
+
   function gameModeLabel(mode = state.pendingGameMode) {
     if (mode === 'force3') return 'FORCE 3-ALARM · NEXT SPIN';
     if (mode === 'force4') return 'FORCE 4-ALARM · NEXT SPIN';
@@ -2546,6 +3132,7 @@
     el.spin.disabled = state.busy;
     el.betDown.disabled = state.busy || state.betIndex === 0;
     el.betUp.disabled = state.busy || state.betIndex === CONFIG.bets.length - 1;
+    updateDebugInspector();
   }
 
   function renderPaytable() {
@@ -2581,7 +3168,8 @@
     if (state.busy) return;
     const spins = 20000;
     el.simulateBtn.disabled = true;
-    el.simulationOutput.textContent = `Running ${spins.toLocaleString()} spins…`;
+    el.simulationOutput.textContent = `Running ${spins.toLocaleString()} BASE-GAME-ONLY spins…`;
+    const savedSeedState = state.seedState;
     await sleep(20);
 
     let total = 0;
@@ -2599,32 +3187,75 @@
     }
 
     const observed = 100 * total / spins;
-    el.simulationOutput.innerHTML = `Observed RTP <strong>${observed.toFixed(2)}%</strong> · Hit rate <strong>${(100 * hits / spins).toFixed(1)}%</strong> · Avg cascades <strong>${(cascades / spins).toFixed(2)}</strong> · Max sample win <strong>${max.toFixed(2)}×</strong>`;
+    state.seedState = savedSeedState;
+    el.simulationOutput.innerHTML = `Base-only sample RTP <strong>${observed.toFixed(2)}%</strong> · Hit rate <strong>${(100 * hits / spins).toFixed(1)}%</strong> · Avg cascades <strong>${(cascades / spins).toFixed(2)}</strong> · Max sample win <strong>${max.toFixed(2)}×</strong><br><small>Bonuses, base-fire teasers, and Fire Wild mechanics are NOT included in this browser sample. Do not treat this as full-game theoretical RTP.</small>`;
     el.simulateBtn.disabled = false;
+    recordEvent('base-simulation', { spins, observedRtp: observed, hits, cascades, max });
   }
 
   el.spin.addEventListener('click', playSpin);
-  el.betDown.addEventListener('click', () => { if (!state.busy && state.betIndex > 0) { state.betIndex--; updateUi(); } });
-  el.betUp.addEventListener('click', () => { if (!state.busy && state.betIndex < CONFIG.bets.length - 1) { state.betIndex++; updateUi(); } });
+  el.betDown.addEventListener('click', () => {
+    if (!state.busy && state.betIndex > 0) {
+      state.betIndex--;
+      updateUi();
+      recordEvent('bet-change', { bet: CONFIG.bets[state.betIndex] });
+    }
+  });
+  el.betUp.addEventListener('click', () => {
+    if (!state.busy && state.betIndex < CONFIG.bets.length - 1) {
+      state.betIndex++;
+      updateUi();
+      recordEvent('bet-change', { bet: CONFIG.bets[state.betIndex] });
+    }
+  });
   el.paytableBtn.addEventListener('click', () => el.paytableDialog.showModal());
   el.paytableClose.addEventListener('click', () => el.paytableDialog.close());
   el.mathBtn.addEventListener('click', () => el.mathDialog.showModal());
   el.mathClose.addEventListener('click', () => el.mathDialog.close());
   el.simulateBtn.addEventListener('click', runSimulation);
-  el.debugBtn.addEventListener('click', () => {
-    updateGameModeStatus();
-    el.debugDialog.showModal();
-  });
-  el.debugClose.addEventListener('click', () => el.debugDialog.close());
 
-  document.querySelectorAll('[data-game-mode]').forEach(button => {
-    button.addEventListener('click', () => setGameMode(button.dataset.gameMode));
+  if (!CONFIG.debugEnabled) {
+    el.debugBtn?.remove();
+    el.debugDialog?.remove();
+  } else {
+    el.debugBtn?.addEventListener('click', () => {
+      updateGameModeStatus();
+      renderDebugSymbolWeights();
+      updateDebugInspector();
+      el.debugDialog?.showModal();
+    });
+    el.debugClose?.addEventListener('click', () => el.debugDialog?.close());
+
+    document.querySelectorAll('[data-game-mode]').forEach(button => {
+      button.addEventListener('click', () => setGameMode(button.dataset.gameMode));
+    });
+
+    document.querySelectorAll('[data-debug-action]').forEach(button => {
+      button.addEventListener('click', () => runDebugAction(button.dataset.debugAction));
+    });
+
+    document.querySelectorAll('[data-animation-speed]').forEach(button => {
+      button.addEventListener('click', () => {
+        setAnimationSpeed(Number(button.dataset.animationSpeed));
+      });
+    });
+
+    document.getElementById('debugApplyMath')?.addEventListener('click', applyDebugMathControls);
+    document.getElementById('debugResetMath')?.addEventListener('click', resetDebugMathControls);
+    document.getElementById('debugSelfTest')?.addEventListener('click', runSelfTests);
+  }
+
+  el.bigWinOverlay?.addEventListener('click', () => {
+    state.bigWinSkip = true;
   });
 
   renderPaytable();
   state.board = createInitialBoard();
   state.symbolFire = createSymbolFireState();
   updateGameModeStatus();
+  renderDebugSymbolWeights();
+  setAnimationSpeed(1);
   renderBoard();
   updateUi();
+  updateDebugInspector();
 })();
