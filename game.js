@@ -2,7 +2,7 @@
   'use strict';
 
   const CONFIG = Object.freeze({
-    version: '0.2.2',
+    version: '0.2.3',
     rows: 7,
     cols: 7,
     cells: 49,
@@ -1291,20 +1291,28 @@
   }
 
   function spreadFire({ force = false, profileName = currentRngProfileName() } = {}) {
-    // A spread opportunity starts from the Burning symbols that existed at the
-    // beginning of this event. If a source spreads, EVERY orthogonally touching
-    // non-Burning symbol ignites. Newly ignited symbols wait until the next
-    // spread opportunity before spreading again, preventing one event from
-    // recursively consuming the entire board.
+    // Spread probability applies to the EVENT, not independently to each source.
+    // If a spread event occurs, EVERY Burning symbol that existed at the start
+    // of the event spreads simultaneously into ALL eligible orthogonal neighbors.
+    // Newly ignited symbols wait until the next spread opportunity, preventing
+    // recursive chain consumption of the entire board in one event.
     const sources = [...burningSymbols()];
     const claimed = new Set();
     const spread = [];
     const reignited = [];
     const chance = currentRngProfile(profileName).fireSpreadChance;
 
-    for (const source of sources) {
-      if (!force && randomFloat() >= chance) continue;
+    if (!sources.length) {
+      return { spread, reignited, sourcesSpread: [] };
+    }
 
+    if (!force && randomFloat() >= chance) {
+      return { spread, reignited, sourcesSpread: [] };
+    }
+
+    const sourcesSpread = [];
+
+    for (const source of sources) {
       const touching = orthogonalNeighbors(source)
         .filter(index =>
           state.symbolFire[index].state !== FIRE_STATE.BURNING &&
@@ -1312,6 +1320,8 @@
           state.board[index] != null
         )
         .slice(0, CONFIG.fireSpreadMaxTargets);
+
+      if (touching.length) sourcesSpread.push(source);
 
       for (const target of touching) {
         claimed.add(target);
@@ -1330,12 +1340,13 @@
 
     if (spread.length || reignited.length) {
       logFireEvent('spread', {
+        sourcesSpread: [...sourcesSpread],
         spread: [...spread],
         reignited: [...reignited]
       });
     }
 
-    return { spread, reignited };
+    return { spread, reignited, sourcesSpread };
   }
 
   function selectSprayRow(profileName = currentRngProfileName()) {
