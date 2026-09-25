@@ -73,6 +73,18 @@
     image.src = src;
   }
 
+  const BONUS_ACTIVE_FRAMES = Object.freeze([
+    'assets/animations/bonusActive/BA1.png',
+    'assets/animations/bonusActive/BA2.png',
+    'assets/animations/bonusActive/BA3.png',
+    'assets/animations/bonusActive/BA4.png'
+  ]);
+
+  for (const src of BONUS_ACTIVE_FRAMES) {
+    const image = new Image();
+    image.src = src;
+  }
+
   const $ = id => document.getElementById(id);
   const el = {
     board: $('board'),
@@ -113,6 +125,7 @@
     busy: false,
     lastWinX: 0,
     forceAlarmOff: false,
+    bonusActive: false,
     stats: { spins: 0, wagered: 0, won: 0 }
   };
 
@@ -258,15 +271,17 @@
     return { board: next, spawned, movements };
   }
 
-  function spriteMarkup(key, label = '', bonusCount = 0, forceOff = false) {
+  function spriteMarkup(key, label = '', bonusCount = 0, forceOff = false, bonusActive = state.bonusActive) {
     if (key === BONUS_KEY) {
-      const stateClass = forceOff
-        ? 'symbol-bonus-one'
-        : bonusCount >= 3
-          ? 'symbol-bonus-three'
-          : bonusCount === 2
-            ? 'symbol-bonus-two'
-            : 'symbol-bonus-one';
+      const stateClass = bonusActive
+        ? 'symbol-bonus-active'
+        : forceOff
+          ? 'symbol-bonus-one'
+          : bonusCount >= 3
+            ? 'symbol-bonus-three'
+            : bonusCount === 2
+              ? 'symbol-bonus-two'
+              : 'symbol-bonus-one';
 
       return `<span class="symbol-sprite symbol-bonus ${stateClass}" role="img" aria-label="${label}"></span>`;
     }
@@ -278,13 +293,15 @@
     el.debugAlarmCount.textContent = bonusCount;
     el.debugAlarmState.textContent =
       bonusCount === 0 ? 'NO ALARMS' :
+      state.bonusActive ? 'BONUS ACTIVE' :
       state.forceAlarmOff ? 'RESOLVED / OFF STATE' :
       bonusCount === 1 ? 'STATIC / OFF STATE' :
       bonusCount === 2 ? '2-HIT ANIMATION' :
       '3+ ALARM ANIMATION';
   }
 
-  function bonusStateClass(bonusCount, forceOff = false) {
+  function bonusStateClass(bonusCount, forceOff = false, bonusActive = state.bonusActive) {
+    if (bonusActive) return 'symbol-bonus-active';
     if (forceOff || bonusCount <= 1) return 'symbol-bonus-one';
     if (bonusCount === 2) return 'symbol-bonus-two';
     return 'symbol-bonus-three';
@@ -293,7 +310,7 @@
   function applyBonusVisualCount(bonusCount) {
     const stateClass = bonusStateClass(bonusCount, state.forceAlarmOff);
     el.board.querySelectorAll('.symbol-bonus').forEach(sprite => {
-      sprite.classList.remove('symbol-bonus-one', 'symbol-bonus-two', 'symbol-bonus-three');
+      sprite.classList.remove('symbol-bonus-one', 'symbol-bonus-two', 'symbol-bonus-three', 'symbol-bonus-active');
       sprite.classList.add(stateClass);
     });
     updateAlarmDebugStatus(bonusCount);
@@ -325,7 +342,7 @@
       if (symbol?.wild) classes.push('wild');
       if (symbol?.bonus) classes.push('bonus');
 
-      return `<div class="${classes.join(' ')}" data-index="${index}" role="gridcell" aria-label="${symbol?.label || key}">${spriteMarkup(key, symbol?.label || key, bonusCount, state.forceAlarmOff)}</div>`;
+      return `<div class="${classes.join(' ')}" data-index="${index}" role="gridcell" aria-label="${symbol?.label || key}">${spriteMarkup(key, symbol?.label || key, bonusCount, state.forceAlarmOff, state.bonusActive)}</div>`;
     }).join('');
   }
 
@@ -657,7 +674,12 @@
       forceAnticipation: true
     });
 
-    setMessage(`DEBUG · ${count} BONUS DROP COMPLETE`, 'LANDING TEST');
+    if (count >= 3) {
+      state.bonusActive = true;
+      renderBoard();
+    }
+
+    setMessage(`DEBUG · ${count} BONUS DROP COMPLETE`, count >= 3 ? 'BONUS ACTIVE' : 'LANDING TEST');
     state.busy = false;
     updateUi();
   }
@@ -691,7 +713,15 @@
       }
     }
 
-    setMessage(`DEBUG CHAIN COMPLETE · ${targetCount} ALARM${targetCount === 1 ? '' : 'S'}`, 'TEST COMPLETE');
+    if (targetCount >= 3) {
+      state.bonusActive = true;
+      renderBoard();
+    }
+
+    setMessage(
+      `DEBUG CHAIN COMPLETE · ${targetCount} ALARM${targetCount === 1 ? '' : 'S'}`,
+      targetCount >= 3 ? 'BONUS ACTIVE' : 'TEST COMPLETE'
+    );
     state.busy = false;
     updateUi();
   }
@@ -708,6 +738,7 @@
 
     state.board = cleanBoard;
     state.forceAlarmOff = false;
+    state.bonusActive = false;
     renderBoard();
 
     const label =
@@ -767,6 +798,7 @@
     setMessage('RESPONDING…', 'NEW BOARD');
 
     state.forceAlarmOff = false;
+    state.bonusActive = false;
     state.board = createInitialBoard();
     await renderBoardWithGravity(initialGravityPlan());
 
@@ -792,6 +824,11 @@
     const endingBonusCount = state.board.filter(key => key === BONUS_KEY).length;
     if (endingBonusCount > 0 && endingBonusCount < 3) {
       state.forceAlarmOff = true;
+      state.bonusActive = false;
+      renderBoard();
+    } else if (endingBonusCount >= 3) {
+      state.forceAlarmOff = false;
+      state.bonusActive = true;
       renderBoard();
     }
 
