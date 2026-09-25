@@ -762,6 +762,82 @@
     setAnticipationColumns([]);
   }
 
+  function visualRandomFloat() {
+    return Math.random();
+  }
+
+  function clearBoardFx() {
+    if (el.boardFx) el.boardFx.replaceChildren();
+  }
+
+  function spawnBoardParticles(type, indices = [], countPerCell = 2) {
+    if (!el.boardFx || !el.board || !indices.length) return;
+
+    const boardRect = el.board.getBoundingClientRect();
+    const existing = el.boardFx.childElementCount;
+    const budget = Math.max(0, CONFIG.particleLimit - existing);
+    if (!budget) return;
+
+    let created = 0;
+    for (const index of indices) {
+      const cell = el.board.querySelector(`[data-index="${index}"]`);
+      if (!cell) continue;
+      const rect = cell.getBoundingClientRect();
+
+      for (let n = 0; n < countPerCell && created < budget; n++) {
+        const particle = document.createElement('i');
+        particle.className = `fx-particle fx-${type}`;
+        const x = rect.left - boardRect.left + rect.width * (0.25 + visualRandomFloat() * 0.5);
+        const y = rect.top - boardRect.top + rect.height * (0.3 + visualRandomFloat() * 0.45);
+        particle.style.left = `${x}px`;
+        particle.style.top = `${y}px`;
+        particle.style.setProperty('--fx-dx', `${Math.round((visualRandomFloat() - 0.5) * 38)}px`);
+        particle.style.setProperty('--fx-dy', `${Math.round(-18 - visualRandomFloat() * 42)}px`);
+        particle.style.setProperty('--fx-delay', `${Math.round(visualRandomFloat() * 90)}ms`);
+        particle.style.setProperty('--fx-scale', (0.65 + visualRandomFloat() * 0.85).toFixed(2));
+        el.boardFx.appendChild(particle);
+        created++;
+
+        const cleanup = () => particle.remove();
+        particle.addEventListener('animationend', cleanup, { once: true });
+        setTimeout(cleanup, scaledMs(1600));
+      }
+    }
+  }
+
+  async function animateMultiplierTransitions(transitions = [], kind = 'fire') {
+    if (!transitions.length) return;
+
+    const animations = transitions.map((transition, rank) => {
+      const cell = el.board.querySelector(`[data-index="${transition.index}"]`);
+      const badge = cell?.querySelector('.fire-state-placeholder');
+      if (!cell) return Promise.resolve();
+
+      cell.classList.add('multiplier-changing', `multiplier-${kind}`);
+      if (badge) {
+        badge.dataset.before = `${transition.before}×`;
+        badge.dataset.after = `${transition.after}×`;
+      }
+
+      if (!Element.prototype.animate) return Promise.resolve();
+
+      return cell.animate([
+        { transform: 'scale(1)', filter: 'brightness(1)' },
+        { transform: 'scale(1.09)', filter: 'brightness(1.55)' },
+        { transform: 'scale(1)', filter: 'brightness(1)' }
+      ], {
+        duration: scaledMs(CONFIG.multiplierTransitionMs),
+        delay: scaledMs(rank * 38),
+        easing: 'cubic-bezier(.18,.82,.24,1)',
+        fill: 'both'
+      }).finished.catch(() => {}).then(() => {
+        cell.classList.remove('multiplier-changing', `multiplier-${kind}`);
+      });
+    });
+
+    await Promise.all(animations);
+  }
+
   function renderBoard(visualBonusCount = null) {
     const actualBonusCount = state.board.reduce((count, key) => count + (key === BONUS_KEY ? 1 : 0), 0);
     const bonusCount = visualBonusCount ?? actualBonusCount;
@@ -1472,13 +1548,15 @@
   }
 
   function logFireEvent(type, data = {}) {
-    state.fireHistory.push({
+    const entry = {
       type,
       bonusType: state.activeBonusType,
       freeSpinsRemaining: state.freeSpinsRemaining,
       ...data
-    });
+    };
+    state.fireHistory.push(entry);
     if (state.fireHistory.length > 100) state.fireHistory.shift();
+    recordEvent(`fire:${type}`, entry);
   }
 
   function burningSymbols() {
@@ -1615,6 +1693,7 @@
     );
     const affected = new Set(affectedRows);
     const extinguished = [];
+    const transitions = [];
 
     // Direct hose row + all rows beneath it from dripping water.
     for (let index = 0; index < CONFIG.cells; index++) {
@@ -1623,25 +1702,22 @@
 
       if (!affected.has(symbolRow) || fire.state !== FIRE_STATE.BURNING) continue;
 
+      const before = fire.multiplier;
       fire.state = FIRE_STATE.SMOULDERING;
       fire.multiplier *= 2;
       extinguished.push(index);
+      transitions.push({ index, before, after: fire.multiplier });
     }
 
     state.fireEvents.sprayRow = row;
     state.fireEvents.sprayAffectedRows = affectedRows;
     state.fireEvents.extinguished = [...extinguished];
 
-    logFireEvent('spray', {
-      row,
-      affectedRows: [...affectedRows],
-      extinguished: [...extinguished]
-    });
-
-    // Backdraft may ONLY be decided here, immediately after Spray fully resolves.
+    // Determine Backdraft now, but DO NOT resolve it yet. This preserves a
+    // readable Smouldering state for the anticipation sequence while keeping
+    // eligibility independent of animation timing.
     const survivingBurning = burningSymbols();
     const currentSmouldering = new Set(smoulderingSymbols());
-
     const backdraftEligible =
       survivingBurning.length > 0 &&
       survivingBurning.some(index =>
@@ -1650,46 +1726,66 @@
 
     state.fireEvents.backdraftEligible = backdraftEligible;
 
-    if (!backdraftEligible) {
-      return {
-        row,
-        affectedRows,
-        extinguished,
-        backdraftEligible: false,
-        backdraftTriggered: false,
-        reignited: []
-      };
-    }
-
-    const reignited = [];
-
-    // Backdraft doubles and reignites ALL Smouldering symbols on the board.
-    for (const index of currentSmouldering) {
-      const fire = state.symbolFire[index];
-      fire.multiplier *= 2;
-      fire.state = FIRE_STATE.BURNING;
-      reignited.push(index);
-    }
-
-    state.fireEvents.backdraftTriggered = true;
-    state.fireEvents.reignited = [...reignited];
-
-    logFireEvent('backdraft', { reignited: [...reignited] });
+    logFireEvent('spray', {
+      row,
+      affectedRows: [...affectedRows],
+      extinguished: [...extinguished],
+      transitions: transitions.map(item => ({ ...item })),
+      backdraftEligible
+    });
 
     return {
       row,
       affectedRows,
       extinguished,
-      backdraftEligible: true,
-      backdraftTriggered: true,
-      reignited
+      transitions,
+      backdraftEligible,
+      backdraftTriggered: false,
+      reignited: []
     };
+  }
+
+  function resolveBackdraftMechanic() {
+    if (!state.fireEvents.backdraftEligible) {
+      return { triggered: false, reignited: [], transitions: [] };
+    }
+
+    const currentSmouldering = smoulderingSymbols();
+    if (!currentSmouldering.length) {
+      state.fireEvents.backdraftEligible = false;
+      return { triggered: false, reignited: [], transitions: [] };
+    }
+
+    const reignited = [];
+    const transitions = [];
+
+    // Backdraft doubles and reignites ALL currently Smouldering symbols.
+    for (const index of currentSmouldering) {
+      const fire = state.symbolFire[index];
+      const before = fire.multiplier;
+      fire.multiplier *= 2;
+      fire.state = FIRE_STATE.BURNING;
+      reignited.push(index);
+      transitions.push({ index, before, after: fire.multiplier });
+    }
+
+    state.fireEvents.backdraftTriggered = true;
+    state.fireEvents.reignited = [...reignited];
+
+    logFireEvent('backdraft', {
+      reignited: [...reignited],
+      transitions: transitions.map(item => ({ ...item }))
+    });
+
+    return { triggered: true, reignited, transitions };
   }
 
   async function showFireEvent(title, detail = '') {
     renderBoard();
     setMessage(title, detail);
-    await sleep(CONFIG.fireEventPauseMs);
+    await runPresentationEvent('presentation:fire-event', { title, detail }, async () => {
+      await sleep(CONFIG.fireEventPauseMs);
+    });
   }
 
   async function resolveSpreadOpportunity(force = false, profileName = currentRngProfileName()) {
@@ -1700,32 +1796,52 @@
       ? `${result.spread.length} NEW · ${result.reignited.length} REIGNITED`
       : `${result.spread.length} NEW SYMBOL${result.spread.length === 1 ? '' : 'S'}`;
 
+    const affected = [...result.spread, ...result.reignited];
+    spawnBoardParticles('ember', affected, 3);
     await showFireEvent('FIRE SPREAD', detail);
     await pulseFireSymbols(
-      [...result.spread, ...result.reignited],
+      affected,
       result.reignited.length ? 'reignite' : 'ignite'
     );
     return result;
   }
 
-  async function resolveSprayEvent(profileName = currentRngProfileName()) {
-    const row = selectSprayRow(profileName);
+  async function resolveSprayEvent(
+    profileName = currentRngProfileName(),
+    forcedRow = null
+  ) {
+    const row = Number.isInteger(forcedRow)
+      ? clamp(forcedRow, 0, CONFIG.rows - 1)
+      : selectSprayRow(profileName);
 
-    // Placeholder physical hose sequence:
-    // horizontal blast first, then downward drip, then extinguish calculation.
+    recordEvent('spray-start', { row });
+
     state.sprayVisual = { row, phase: 'line' };
     renderBoard();
+    el.board?.classList.add('spray-active');
     setMessage('PUT OUT FLAMES', `HOSE · ROW ${row + 1}`);
+    spawnBoardParticles('mist', Array.from({ length: CONFIG.cols }, (_, col) => row * CONFIG.cols + col), 2);
     await sleep(CONFIG.sprayLinePauseMs);
 
     state.sprayVisual = { row, phase: 'drip' };
     renderBoard();
     setMessage('PUT OUT FLAMES', `WATER DRIPPING BELOW ROW ${row + 1}`);
+    const dripIndices = [];
+    for (let r = row + 1; r < CONFIG.rows; r++) {
+      for (let col = 0; col < CONFIG.cols; col++) dripIndices.push(r * CONFIG.cols + col);
+    }
+    spawnBoardParticles('water', dripIndices, 1);
     await sleep(CONFIG.sprayDripPauseMs);
 
     const result = applySprayToSymbols(row);
     state.sprayVisual = null;
     renderBoard();
+    el.board?.classList.remove('spray-active');
+
+    if (result.extinguished.length) {
+      spawnBoardParticles('smoke', result.extinguished, 2);
+      await animateMultiplierTransitions(result.transitions, 'water');
+    }
 
     setMessage(
       'PUT OUT FLAMES',
@@ -1733,19 +1849,46 @@
     );
     await sleep(CONFIG.fireEventPauseMs);
 
-    if (result.backdraftTriggered) {
-      state.backdraftFlash = true;
-      renderBoard();
-      setMessage('BACKDRAFT', `${result.reignited.length} SMOULDERING SYMBOLS REIGNITED`);
-      await sleep(CONFIG.fireEventPauseMs + 140);
-      state.backdraftFlash = false;
-      renderBoard();
+    if (result.backdraftEligible) {
+      // Quiet beat before the violent resolution.
+      el.board?.classList.add('backdraft-anticipation');
+      setMessage('PRESSURE BUILDING…', 'BACKDRAFT CONDITIONS DETECTED');
+      recordEvent('backdraft-anticipation', {
+        burning: burningSymbols(),
+        smouldering: smoulderingSymbols()
+      });
+      spawnBoardParticles('smoke', smoulderingSymbols(), 1);
+      await sleep(CONFIG.backdraftAnticipationMs);
 
-      // Backdraft may lead to normal spread. That spread cannot itself trigger Backdraft.
-      await resolveSpreadOpportunity(false, profileName);
+      const backdraft = resolveBackdraftMechanic();
+
+      if (backdraft.triggered) {
+        state.backdraftFlash = true;
+        el.board?.classList.remove('backdraft-anticipation');
+        renderBoard();
+        setMessage(
+          'BACKDRAFT',
+          `${backdraft.reignited.length} SMOULDERING SYMBOLS REIGNITED`
+        );
+
+        spawnBoardParticles('burst', backdraft.reignited, 5);
+        await animateMultiplierTransitions(backdraft.transitions, 'backdraft');
+        await sleep(CONFIG.backdraftBurstMs);
+
+        state.backdraftFlash = false;
+        renderBoard();
+
+        // Backdraft may lead to normal spread. That spread cannot itself trigger Backdraft.
+        await resolveSpreadOpportunity(false, profileName);
+      }
     }
 
-    return result;
+    el.board?.classList.remove('backdraft-anticipation');
+    return {
+      ...result,
+      backdraftTriggered: state.fireEvents.backdraftTriggered,
+      reignited: [...state.fireEvents.reignited]
+    };
   }
 
   function bonusTierFromAlarmCount(count) {
@@ -1990,7 +2133,7 @@
   }
 
   function sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
+    return new Promise(resolve => setTimeout(resolve, scaledMs(ms)));
   }
 
   async function playSpin() {
