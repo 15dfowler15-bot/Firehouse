@@ -53,6 +53,23 @@
     image.src = src;
   }
 
+  const BONUS_THREE_FRAMES = Object.freeze([
+    'assets/animations/bonus2/Bonus31.png',
+    'assets/animations/bonus2/Bonus32.png',
+    'assets/animations/bonus2/Bonus33.png',
+    'assets/animations/bonus2/Bonus34.png',
+    'assets/animations/bonus2/Bonus35.png',
+    'assets/animations/bonus2/Bonus36.png',
+    'assets/animations/bonus2/Bonus37.png',
+    'assets/animations/bonus2/Bonus38.png',
+    'assets/animations/bonus2/Bonus39.png'
+  ]);
+
+  for (const src of BONUS_THREE_FRAMES) {
+    const image = new Image();
+    image.src = src;
+  }
+
   const $ = id => document.getElementById(id);
   const el = {
     board: $('board'),
