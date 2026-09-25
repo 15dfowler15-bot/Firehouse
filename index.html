@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <meta name="theme-color" content="#0c0c0d" />
   <title>Firehouse</title>
-  <link rel="stylesheet" href="styles.css?v=bonus-active-fallback-1" />
+  <link rel="stylesheet" href="styles.css?v=fire-panel-debug-1" />
 </head>
 <body>
   <main class="app" id="app">
@@ -192,9 +192,23 @@
       </div>
     </section>
 
+    <section class="debug-feature-section">
+      <div class="debug-feature-head">
+        <strong>FIRE PANEL TESTS</strong>
+        <span>25-frame fire sprite · visual only</span>
+      </div>
+      <div class="debug-test-grid fire-debug-grid">
+        <button data-fire-debug="solo" type="button">1 FIRE · SOLO</button>
+        <button data-fire-debug="random3" type="button">3 FIRES · RANDOM</button>
+        <button data-fire-debug="square" type="button">FIRE · 2×2</button>
+        <button data-fire-debug="weird" type="button">FIRE · WEIRD</button>
+        <button data-fire-debug="clear" type="button">CLEAR FIRE</button>
+      </div>
+    </section>
+
     <p class="fine-print">Debug placement is visual-only. It does not award a bonus or alter the production RNG math.</p>
   </dialog>
 
-  <script src="game.js?v=bonus-active-1"></script>
+  <script src="game.js?v=fire-panel-debug-1"></script>
 </body>
 </html>
