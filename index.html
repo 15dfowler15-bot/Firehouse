@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <meta name="theme-color" content="#0c0c0d" />
   <title>Firehouse</title>
-  <link rel="stylesheet" href="styles.css?v=completion-v030-2" />
+  <link rel="stylesheet" href="styles.css?v=completion-v030-3" />
 </head>
 <body>
   <div class="page-shell">
@@ -134,12 +134,12 @@
       <button class="dialog-close" id="mathClose" type="button" aria-label="Close math panel">×</button>
     </div>
     <div class="math-cards">
-      <div><span>TARGET RTP</span><strong>96.00%</strong></div>
-      <div><span>MIN CLUSTER</span><strong>8</strong></div>
-      <div><span>GRID</span><strong>7×7</strong></div>
-      <div><span>CLUSTER BIAS</span><strong>54.78%</strong></div>
+      <div><span>NOMINAL RTP TARGET</span><strong id="mathTargetRtp">96.00%*</strong></div>
+      <div><span>ACTIVE PROFILE</span><strong id="mathActiveProfile">BASELINE</strong></div>
+      <div><span>GRID / MIN</span><strong>7×7 / 8+</strong></div>
+      <div><span>CLUSTER BIAS</span><strong id="mathClumpChance">54.78%</strong></div>
     </div>
-    <p class="dialog-copy">Money-affecting draws use <code>crypto.getRandomValues()</code> when available. The board generator intentionally has a calibrated neighbor-clump probability so 8+ connected groups occur often enough for the displayed low-value paytable to target roughly 96% RTP.</p>
+    <p class="dialog-copy">Money-affecting draws use <code>crypto.getRandomValues()</code> when available. The displayed target is a nominal development target for the active math profile, not a certified full-game RTP. Full-game Fire/bonus contribution still requires presentation-free simulation and formal analysis.</p>
     <button id="simulateBtn" class="simulate-btn" type="button">RUN 20,000 BASE-GAME SPINS</button>
     <div id="simulationOutput" class="simulation-output">No simulation run yet. This browser sampler covers the cascade base game only; bonus/fire contribution requires full-model simulation.</div>
     <p class="fine-print">Prototype calibration only. A real-money release would require formal mathematical analysis, jurisdiction-specific testing, and independent certification.</p>
@@ -318,6 +318,6 @@
     </p>
   </dialog>
 
-  <script src="game.js?v=completion-v030-2"></script>
+  <script src="game.js?v=completion-v030-3"></script>
 </body>
 </html>
