@@ -1537,7 +1537,12 @@
 
     const targets = eligible.slice(
       0,
-      Math.min(CONFIG.fireFiveFreshIgnitionCount, eligible.length)
+      Math.min(
+        Number.isFinite(state.mathOverrides.freshIgnitionCount)
+          ? Math.max(0, Math.floor(state.mathOverrides.freshIgnitionCount))
+          : CONFIG.fireFiveFreshIgnitionCount,
+        eligible.length
+      )
     );
 
     for (const index of targets) {
@@ -1604,7 +1609,11 @@
   function igniteRandomNormalSymbol(source = 'random-ignition') {
     const eligible = state.symbolFire
       .map((fire, index) => fire.state === FIRE_STATE.NORMAL ? index : -1)
-      .filter(index => index >= 0 && state.board[index] != null);
+      .filter(index =>
+        index >= 0 &&
+        state.board[index] != null &&
+        state.board[index] !== BONUS_KEY
+      );
 
     const target = randomFrom(eligible);
     if (target == null) return null;
@@ -1891,6 +1900,38 @@
     };
   }
 
+  function selectBaseFireFeature() {
+    if (state.debugEnhancements.guaranteedFire) return 'ignition';
+
+    const chance = state.debugEnhancements.highFireFrequency
+      ? Math.min(0.25, CONFIG.baseFireFeatureChance * 3)
+      : CONFIG.baseFireFeatureChance;
+
+    if (randomFloat() >= chance) return null;
+    return randomFloat() < CONFIG.baseFireHoseShare ? 'hose' : 'ignition';
+  }
+
+  async function resolveBaseFireTeaser(feature, profileName) {
+    if (!feature) return;
+
+    recordEvent('base-fire-feature', { feature, profileName });
+    const ignition = igniteRandomNormalSymbol('base-game-teaser');
+    if (ignition == null) return;
+
+    renderBoard();
+    spawnBoardParticles('ember', [ignition], 4);
+    setMessage('HEAT SPIKE', 'RARE BASE-GAME IGNITION · 2×');
+    await pulseFireSymbols([ignition], 'ignite');
+    await sleep(CONFIG.fireEventPauseMs);
+
+    // Selected before board generation; this is not post-result payout chasing.
+    await resolveSpreadOpportunity(true, profileName);
+
+    if (feature === 'hose') {
+      await resolveSprayEvent(profileName);
+    }
+  }
+
   function bonusTierFromAlarmCount(count) {
     if (count >= 5) return 5;
     if (count === 4) return 4;
@@ -1920,14 +1961,28 @@
     resetSymbolFire();
 
     let bonusTotalX = 0;
+    state.currentSpinBonusX = 0;
 
-    await showFireEvent(
+    recordEvent('bonus-start', {
+      tier,
+      freeSpins: definition.freeSpins,
+      profileName
+    });
+
+    await showTransition(
       `${definition.label} BONUS`,
-      `${definition.freeSpins} FREE SPINS`
+      `${definition.freeSpins} FREE SPINS · FIRE SYSTEM ARMED`,
+      `alarm-${tier}`,
+      900
     );
 
     for (let spinNumber = 1; spinNumber <= definition.freeSpins; spinNumber++) {
       state.freeSpinsRemaining = definition.freeSpins - spinNumber + 1;
+      recordEvent('free-spin-start', {
+        tier,
+        spinNumber,
+        remainingIncludingCurrent: state.freeSpinsRemaining
+      });
       resetFireEventState();
       state.compressionResultIndex = null;
 
@@ -2006,6 +2061,7 @@
         cascadeNumber++;
         spinX += result.totalX;
         bonusTotalX += result.totalX;
+        state.currentSpinBonusX = bonusTotalX;
         await animateWin(result, cascadeNumber);
 
         const cascaded = cascadeBoard(
@@ -2025,7 +2081,10 @@
 
       if (tier === 4) {
         await resolveSprayEvent(profileName);
-      } else if (tier === 5 && randomFloat() < profile.fireFiveSprayChance) {
+      } else if (
+        tier === 5 &&
+        (state.debugEnhancements.guaranteedSpray || randomFloat() < profile.fireFiveSprayChance)
+      ) {
         await resolveSprayEvent(profileName);
       }
 
@@ -2054,11 +2113,26 @@
           : `${definition.label} · SPIN ${spinNumber} COMPLETE · ${spinX.toFixed(2)}×`,
         `${state.freeSpinsRemaining} FREE SPINS LEFT`
       );
+      recordEvent('free-spin-complete', {
+        tier,
+        spinNumber,
+        spinX,
+        bonusTotalX,
+        remaining: state.freeSpinsRemaining,
+        burning: burningSymbols().length,
+        smouldering: smoulderingSymbols().length,
+        fireWildMultiplier: state.fireWildCarryover?.multiplier || 0
+      });
       await sleep(CONFIG.freeSpinEndHoldMs);
     }
 
-    setMessage(`${definition.label} COMPLETE`, `${bonusTotalX.toFixed(2)}× BONUS WIN`);
-    await sleep(780);
+    recordEvent('bonus-complete', { tier, bonusTotalX });
+    await showTransition(
+      `${definition.label} COMPLETE`,
+      `${bonusTotalX.toFixed(2)}× BONUS WIN`,
+      'bonus-complete',
+      900
+    );
 
     state.activeBonusType = 0;
     state.freeSpinsRemaining = 0;
@@ -2107,9 +2181,119 @@
   function setMessage(message, cascade = '') {
     el.message.textContent = message;
     el.cascade.textContent = cascade || '—';
+    updateDebugInspector();
+  }
+
+  async function showTransition(title, detail = '', variant = 'fire', holdMs = 760) {
+    recordEvent('transition', { title, detail, variant });
+
+    if (!el.transitionOverlay) {
+      setMessage(title, detail);
+      await sleep(holdMs);
+      return;
+    }
+
+    el.transitionTitle.textContent = title;
+    el.transitionDetail.textContent = detail;
+    el.transitionOverlay.dataset.variant = variant;
+    el.transitionOverlay.classList.add('show');
+    emitAudioHook('transition', { title, variant });
+
+    await sleep(holdMs);
+    el.transitionOverlay.classList.remove('show');
+    await sleep(120);
+  }
+
+  function bigWinTier(totalX) {
+    const t = CONFIG.bigWinThresholds;
+    if (totalX >= t.inferno) return { key: 'inferno', label: 'INFERNO WIN' };
+    if (totalX >= t.mega) return { key: 'mega', label: 'MEGA WIN' };
+    if (totalX >= t.super) return { key: 'super', label: 'SUPER WIN' };
+    if (totalX >= t.big) return { key: 'big', label: 'BIG WIN' };
+    return null;
+  }
+
+  async function presentBigWin(totalX) {
+    const tier = bigWinTier(totalX);
+    if (!tier) return;
+
+    recordEvent('big-win', { tier: tier.key, totalX });
+    emitAudioHook('big-win', { tier: tier.key, totalX });
+    spawnBoardParticles('ember', Array.from({ length: CONFIG.cells }, (_, index) => index), tier.key === 'inferno' ? 2 : 1);
+
+    if (!el.bigWinOverlay) {
+      showBanner(`${tier.label} · ${totalX.toFixed(2)}×`);
+      await sleep(900);
+      return;
+    }
+
+    state.bigWinSkip = false;
+    el.bigWinTier.textContent = tier.label;
+    el.bigWinAmount.textContent = '0.00×';
+    el.bigWinOverlay.dataset.tier = tier.key;
+    el.bigWinOverlay.classList.add('show');
+
+    const baseDuration =
+      tier.key === 'inferno' ? 2800 :
+      tier.key === 'mega' ? 2200 :
+      tier.key === 'super' ? 1750 :
+      1350;
+    const duration = scaledMs(baseDuration);
+    const start = performance.now();
+
+    await new Promise(resolve => {
+      function frame(now) {
+        const elapsed = now - start;
+        const progress = state.bigWinSkip
+          ? 1
+          : clamp(elapsed / Math.max(1, duration), 0, 1);
+        const eased = 1 - Math.pow(1 - progress, 3);
+        el.bigWinAmount.textContent = `${(totalX * eased).toFixed(2)}×`;
+
+        if (progress >= 1) {
+          resolve();
+          return;
+        }
+        requestAnimationFrame(frame);
+      }
+      requestAnimationFrame(frame);
+    });
+
+    el.bigWinAmount.textContent = `${totalX.toFixed(2)}×`;
+    await sleep(state.bigWinSkip ? 80 : 520);
+    el.bigWinOverlay.classList.remove('show');
+    state.bigWinSkip = false;
+  }
+
+  function cancelVisualEffects() {
+    try {
+      el.board?.getAnimations({ subtree: true }).forEach(animation => animation.cancel());
+    } catch {}
+    clearBoardFx();
+    el.board?.classList.remove(
+      'backdraft-flash',
+      'backdraft-anticipation',
+      'spray-active',
+      'bonus-anticipation'
+    );
+    el.transitionOverlay?.classList.remove('show');
+    el.bigWinOverlay?.classList.remove('show');
   }
 
   async function animateWin(result, cascadeNumber) {
+    state.currentCascade = cascadeNumber;
+    recordEvent('win-detected', {
+      cascade: cascadeNumber,
+      totalX: result.totalX,
+      wins: result.wins.map(win => ({
+        symbol: win.symbol,
+        count: win.count,
+        baseAmountX: win.baseAmountX,
+        fireMultiplier: win.fireMultiplier,
+        amountX: win.amountX
+      }))
+    });
+
     const winning = new Set(result.remove);
     for (const index of winning) {
       el.board.querySelector(`[data-index="${index}"]`)?.classList.add('win');
@@ -2125,18 +2309,23 @@
       `${result.wins.length} CLUSTER${result.wins.length === 1 ? '' : 'S'}${fireDetail}`
     );
     showBanner(`+${result.totalX.toFixed(2)}×`);
+    spawnBoardParticles('spark', [...winning], boosted.length ? 3 : 1);
     await sleep(CONFIG.winHoldMs);
     for (const index of winning) {
       el.board.querySelector(`[data-index="${index}"]`)?.classList.add('pop');
     }
     await sleep(CONFIG.winPopMs);
+    recordEvent('cascade-remove', {
+      cascade: cascadeNumber,
+      removed: [...winning]
+    });
   }
 
   function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, scaledMs(ms)));
   }
 
-  async function playSpin() {
+  async function playSpinInternal() {
     if (state.busy) return;
 
     const bet = CONFIG.bets[state.betIndex];
@@ -2152,7 +2341,16 @@
       spinMode === 'force5' || spinMode === 'large' ? 5 :
       0;
 
-    const profileName = spinMode === 'large' ? 'large' : 'normal';
+    const baseFeature =
+      spinMode === 'normal'
+        ? selectBaseFireFeature()
+        : null;
+    const profileName =
+      spinMode === 'large' || baseFeature
+        ? 'large'
+        : 'normal';
+
+    state.baseFireFeature = baseFeature;
 
     // Forced modes are one-shot. The next spin consumes the request.
     state.pendingGameMode = 'normal';
@@ -2160,6 +2358,20 @@
     updateGameModeStatus();
 
     state.busy = true;
+    state.spinId += 1;
+    state.currentCascade = 0;
+    state.currentSpinBaseX = 0;
+    state.currentSpinBonusX = 0;
+    state.lastError = '';
+
+    recordEvent('spin-start', {
+      bet,
+      mode: spinMode,
+      profileName,
+      baseFeature,
+      mathProfile: state.mathProfile
+    });
+
     state.balance -= bet;
     state.stats.spins++;
     state.stats.wagered += bet;
@@ -2194,21 +2406,26 @@
       forceAnticipation: true
     });
 
+    if (baseFeature) {
+      await resolveBaseFireTeaser(baseFeature, profileName);
+    }
+
     let totalX = 0;
     let cascadeNumber = 0;
 
     while (cascadeNumber < CONFIG.maxCascades) {
-      const result = evaluateBoard(state.board);
+      const result = evaluateBoard(state.board, state.symbolFire);
       if (!result.wins.length) break;
 
       cascadeNumber++;
       totalX += result.totalX;
+      state.currentSpinBaseX += result.totalX;
       await animateWin(result, cascadeNumber);
 
       const cascaded = cascadeBoard(
         state.board,
         result.remove,
-        null,
+        state.symbolFire,
         {
           // Preserve the exact forced trigger tier during the qualifying base spin.
           // Normal Game retains natural bonus-symbol generation on cascade refills.
@@ -2218,7 +2435,16 @@
       );
 
       state.board = cascaded.board;
+      state.symbolFire = cascaded.symbolFire;
+      recordEvent('cascade', {
+        cascade: cascadeNumber,
+        spawned: [...cascaded.spawned]
+      });
       await renderBoardWithGravity(cascaded.movements, { isCascade: true });
+
+      if (baseFeature && burningSymbols().length) {
+        await resolveSpreadOpportunity(false, profileName);
+      }
     }
 
     const endingBonusCount = state.board.filter(key => key === BONUS_KEY).length;
@@ -2234,11 +2460,22 @@
       renderBoard();
 
       const definition = BONUS_TIERS[triggeredTier];
-      setMessage(`${definition.label} TRIGGERED`, `${definition.freeSpins} FREE SPINS`);
-      await sleep(CONFIG.bonusTriggerHoldMs);
+      recordEvent('bonus-trigger', {
+        tier: triggeredTier,
+        alarms: endingBonusCount,
+        freeSpins: definition.freeSpins
+      });
+      await showTransition(
+        `${definition.label} TRIGGERED`,
+        `${definition.freeSpins} FREE SPINS`,
+        `alarm-${triggeredTier}`,
+        CONFIG.bonusTriggerHoldMs
+      );
 
       // Natural, forced-trigger, and large-outcome modes all use this same bonus engine.
-      totalX += await runFireBonus(triggeredTier, bet, { profileName });
+      const bonusX = await runFireBonus(triggeredTier, bet, { profileName });
+      state.currentSpinBonusX = bonusX;
+      totalX += bonusX;
     }
 
     const creditsWon = totalX * bet;
@@ -2246,6 +2483,16 @@
     state.stats.won += creditsWon;
     state.lastWinX = totalX;
     state.largeOutcomeActive = false;
+
+    recordEvent('spin-accounted', {
+      baseX: state.currentSpinBaseX,
+      bonusX: state.currentSpinBonusX,
+      totalX,
+      creditsWon,
+      balance: state.balance
+    });
+
+    await presentBigWin(totalX);
 
     setMessage(
       totalX > 0 ? `TOTAL WIN ${totalX.toFixed(2)}×` : 'NO WIN',
@@ -2256,8 +2503,34 @@
           : 'READY'
     );
 
+    recordEvent('spin-complete', {
+      totalX,
+      balance: state.balance,
+      cascadeCount: cascadeNumber,
+      triggeredTier
+    });
+
     state.busy = false;
     updateUi();
+  }
+
+  async function playSpin() {
+    if (state.busy) return;
+
+    try {
+      await playSpinInternal();
+    } catch (error) {
+      state.lastError = error instanceof Error ? error.message : String(error);
+      recordEvent('runtime-error', {
+        message: state.lastError,
+        stack: error instanceof Error ? error.stack : ''
+      });
+      cancelVisualEffects();
+      setMessage('GAME RECOVERED FROM ERROR', state.lastError.slice(0, 90));
+      state.largeOutcomeActive = false;
+      state.busy = false;
+      updateUi();
+    }
   }
 
   function updateUi() {
