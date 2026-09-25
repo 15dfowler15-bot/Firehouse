@@ -327,7 +327,10 @@
       fireSpreadChance: null,
       sprayChance: null,
       bonusWeight: null,
-      freshIgnitionCount: null
+      freshIgnitionCount: null,
+      trigger3Chance: null,
+      trigger4Chance: null,
+      trigger5Chance: null
     },
     symbolWeightOverrides: {},
     debugEnhancements: {
@@ -1906,6 +1909,28 @@
     };
   }
 
+  function selectConfiguredDebugTier() {
+    const rates = [
+      [5, state.mathOverrides.trigger5Chance],
+      [4, state.mathOverrides.trigger4Chance],
+      [3, state.mathOverrides.trigger3Chance]
+    ].map(([tier, chance]) => [tier, Number.isFinite(chance) ? clamp(chance, 0, 1) : 0]);
+
+    const total = rates.reduce((sum, [, chance]) => sum + chance, 0);
+    if (total <= 0) return 0;
+
+    const roll = randomFloat();
+    let cursor = 0;
+    for (const [tier, chance] of rates) {
+      cursor += chance;
+      if (roll < cursor) {
+        recordEvent('debug-tier-trigger-selected', { tier, roll, rates: Object.fromEntries(rates) });
+        return tier;
+      }
+    }
+    return 0;
+  }
+
   function selectBaseFireFeature() {
     if (state.debugEnhancements.guaranteedFire) return 'ignition';
 
@@ -2187,6 +2212,11 @@
       freshIgnitionCount:
         state.mathOverrides.freshIgnitionCount ??
         CONFIG.fireFiveFreshIgnitionCount,
+      debugTriggerRates: {
+        alarm3: state.mathOverrides.trigger3Chance,
+        alarm4: state.mathOverrides.trigger4Chance,
+        alarm5: state.mathOverrides.trigger5Chance
+      },
       seeded: Boolean(state.debugSeed),
       seed: state.debugSeed || null
     };
@@ -2290,7 +2320,9 @@
   function readDebugNumber(id, fallback = null) {
     const node = document.getElementById(id);
     if (!node) return fallback;
-    const value = Number(node.value);
+    const raw = String(node.value ?? '').trim();
+    if (!raw) return fallback;
+    const value = Number(raw);
     return Number.isFinite(value) ? value : fallback;
   }
 
@@ -2308,6 +2340,9 @@
     state.mathOverrides.sprayChance = readDebugNumber('debugSprayChance', null);
     state.mathOverrides.bonusWeight = readDebugNumber('debugBonusWeight', null);
     state.mathOverrides.freshIgnitionCount = readDebugNumber('debugFreshIgnitions', null);
+    state.mathOverrides.trigger3Chance = readDebugNumber('debugTrigger3Chance', null);
+    state.mathOverrides.trigger4Chance = readDebugNumber('debugTrigger4Chance', null);
+    state.mathOverrides.trigger5Chance = readDebugNumber('debugTrigger5Chance', null);
 
     document.querySelectorAll('[data-symbol-weight]').forEach(input => {
       const value = Number(input.value);
@@ -2323,6 +2358,10 @@
     state.debugEnhancements.guaranteedSpray = Boolean(el.debugGuaranteedSpray?.checked);
     state.debugEnhancements.highFireFrequency = Boolean(el.debugHighFireFrequency?.checked);
     state.debugEnhancements.maxVisualIntensity = Boolean(el.debugMaxVisualIntensity?.checked);
+    document.documentElement.classList.toggle(
+      'max-visual-intensity',
+      state.debugEnhancements.maxVisualIntensity
+    );
 
     recordEvent('debug-math-applied', currentMathConfigSnapshot());
     updateDebugInspector();
@@ -2337,7 +2376,10 @@
       fireSpreadChance: null,
       sprayChance: null,
       bonusWeight: null,
-      freshIgnitionCount: null
+      freshIgnitionCount: null,
+      trigger3Chance: null,
+      trigger4Chance: null,
+      trigger5Chance: null
     };
     state.symbolWeightOverrides = {};
     state.debugEnhancements = {
@@ -2362,12 +2404,16 @@
       ['debugSpreadChance', ''],
       ['debugSprayChance', ''],
       ['debugBonusWeight', ''],
-      ['debugFreshIgnitions', '']
+      ['debugFreshIgnitions', ''],
+      ['debugTrigger3Chance', ''],
+      ['debugTrigger4Chance', ''],
+      ['debugTrigger5Chance', '']
     ]) {
       const node = document.getElementById(id);
       if (node) node.value = value;
     }
 
+    document.documentElement.classList.remove('max-visual-intensity');
     renderDebugSymbolWeights();
     recordEvent('debug-math-reset', {});
     updateDebugInspector();
@@ -2564,6 +2610,19 @@
         renderBoard();
         const row = Number(el.debugSprayRow?.value);
         await resolveSprayEvent('normal', Number.isInteger(row) ? row : 3);
+      }
+
+      if (action === 'spray-all') {
+        for (let row = 0; row < CONFIG.rows; row++) {
+          prepareDebugBoard();
+          [3, 10, 17, 24, 31, 38, 45].forEach((index, rank) => {
+            setFireStateAt(index, FIRE_STATE.BURNING, 2 + rank * 2);
+          });
+          renderBoard();
+          setMessage('SPRAY ROW MATRIX', `TESTING ROW ${row + 1} / ${CONFIG.rows}`);
+          await resolveSprayEvent('normal', row);
+          await sleep(180);
+        }
       }
 
       if (action === 'backdraft') {
@@ -2921,14 +2980,19 @@
     }
 
     const spinMode = state.pendingGameMode;
-    const forcedTier =
+    const explicitForcedTier =
       spinMode === 'force3' ? 3 :
       spinMode === 'force4' ? 4 :
       spinMode === 'force5' || spinMode === 'large' ? 5 :
       0;
+    const configuredDebugTier =
+      spinMode === 'normal' && CONFIG.debugEnabled
+        ? selectConfiguredDebugTier()
+        : 0;
+    const forcedTier = explicitForcedTier || configuredDebugTier;
 
     const baseFeature =
-      spinMode === 'normal'
+      spinMode === 'normal' && forcedTier === 0
         ? selectBaseFireFeature()
         : null;
     const profileName =
