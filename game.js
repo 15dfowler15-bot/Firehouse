@@ -18,6 +18,8 @@
     fireSpreadChance: 0.42,
     fireFiveSprayChance: 0.45,
     fireEventPauseMs: 260,
+    sprayLinePauseMs: 180,
+    sprayDripPauseMs: 300,
 
     bets: [0.20, 0.50, 1.00, 2.00, 5.00, 10.00]
   });
@@ -104,12 +106,27 @@
     5: Object.freeze({ alarms: 5, freeSpins: 10, label: '5-ALARM' })
   });
 
-  function createFireGrid() {
+  function createSymbolFireState() {
     return Array.from({ length: CONFIG.cells }, () => ({
       state: FIRE_STATE.NORMAL,
       multiplier: 0
     }));
   }
+
+  const RNG_PROFILES = Object.freeze({
+    normal: Object.freeze({
+      clumpChance: CONFIG.clumpChance,
+      fireThreeIgnitionChance: CONFIG.fireThreeIgnitionChance,
+      fireSpreadChance: CONFIG.fireSpreadChance,
+      fireFiveSprayChance: CONFIG.fireFiveSprayChance
+    }),
+    large: Object.freeze({
+      clumpChance: 0.72,
+      fireThreeIgnitionChance: 0.70,
+      fireSpreadChance: 0.80,
+      fireFiveSprayChance: 0.78
+    })
+  });
 
   const $ = id => document.getElementById(id);
   const el = {
@@ -140,8 +157,7 @@
     debugBtn: $('debugBtn'),
     debugDialog: $('debugDialog'),
     debugClose: $('debugClose'),
-    debugAlarmCount: $('debugAlarmCount'),
-    debugAlarmState: $('debugAlarmState')
+    debugGameMode: $('debugGameMode')
   };
 
   const state = {
@@ -153,21 +169,29 @@
     forceAlarmOff: false,
     bonusActive: false,
 
-    // Fire Bonus state
+    // Fire Bonus state. Fire belongs to the symbol at the same array index.
+    // cascadeBoard moves this metadata with the symbol and deletes it when the symbol wins.
     activeBonusType: 0,
     freeSpinsRemaining: 0,
     freeSpinsTotal: 0,
-    fireCells: createFireGrid(),
+    symbolFire: createSymbolFireState(),
     fireEvents: {
       newIgnition: [],
       spread: [],
-      sprayRows: [],
+      sprayRow: null,
+      sprayAffectedRows: [],
       extinguished: [],
       backdraftEligible: false,
       backdraftTriggered: false,
       reignited: []
     },
     fireHistory: [],
+    sprayVisual: null,
+    backdraftFlash: false,
+
+    // Playable one-shot test modes. All resolve through the same game engine.
+    pendingGameMode: 'normal',
+    largeOutcomeActive: false,
 
     stats: { spins: 0, wagered: 0, won: 0 }
   };
@@ -181,31 +205,84 @@
     return Math.random();
   }
 
-  function weightedSymbolKey() {
-    let roll = randomFloat() * TOTAL_WEIGHT;
-    for (const symbol of SYMBOLS) {
-      roll -= symbol.weight;
+  function currentRngProfileName() {
+    return state.largeOutcomeActive ? 'large' : 'normal';
+  }
+
+  function currentRngProfile(profileName = currentRngProfileName()) {
+    return RNG_PROFILES[profileName] || RNG_PROFILES.normal;
+  }
+
+  function profiledSymbolWeight(symbol, profileName = currentRngProfileName()) {
+    if (profileName !== 'large') return symbol.weight;
+
+    const multipliers = {
+      chief: 2.4,
+      dalmatian: 1.9,
+      radio: 1.5,
+      wild: 2.3,
+      suit: 1.25
+    };
+    return symbol.weight * (multipliers[symbol.key] || 1);
+  }
+
+  function weightedSymbolKey({ allowBonus = true, profileName = currentRngProfileName() } = {}) {
+    const pool = SYMBOLS.filter(symbol => allowBonus || symbol.key !== BONUS_KEY);
+    const total = pool.reduce((sum, symbol) => sum + profiledSymbolWeight(symbol, profileName), 0);
+    let roll = randomFloat() * total;
+
+    for (const symbol of pool) {
+      roll -= profiledSymbolWeight(symbol, profileName);
       if (roll <= 0) return symbol.key;
     }
-    return SYMBOLS[SYMBOLS.length - 1].key;
+
+    return pool[pool.length - 1].key;
   }
 
-  function maybeCloneNeighbor(neighbors) {
-    if (!neighbors.length || randomFloat() >= CONFIG.clumpChance) return weightedSymbolKey();
+  function maybeCloneNeighbor(neighbors, { allowBonus = true, profileName = currentRngProfileName() } = {}) {
+    const profile = currentRngProfile(profileName);
+    if (!neighbors.length || randomFloat() >= profile.clumpChance) {
+      return weightedSymbolKey({ allowBonus, profileName });
+    }
+
     const selected = neighbors[Math.floor(randomFloat() * neighbors.length)];
-    return NON_CLUMP_KEYS.has(selected) ? weightedSymbolKey() : selected;
+    return NON_CLUMP_KEYS.has(selected)
+      ? weightedSymbolKey({ allowBonus, profileName })
+      : selected;
   }
 
-  function createInitialBoard() {
+  function randomUniqueIndices(count) {
+    const indices = Array.from({ length: CONFIG.cells }, (_, index) => index);
+    for (let i = indices.length - 1; i > 0; i--) {
+      const j = Math.floor(randomFloat() * (i + 1));
+      [indices[i], indices[j]] = [indices[j], indices[i]];
+    }
+    return indices.slice(0, Math.min(count, CONFIG.cells));
+  }
+
+  function createInitialBoard({ forcedBonusCount = 0, allowBonus = true, profileName = currentRngProfileName() } = {}) {
+    const forceTrigger = forcedBonusCount > 0;
     const board = Array(CONFIG.cells).fill(null);
+
     for (let index = 0; index < CONFIG.cells; index++) {
       const row = Math.floor(index / CONFIG.cols);
       const col = index % CONFIG.cols;
       const neighbors = [];
       if (col > 0) neighbors.push(board[index - 1]);
       if (row > 0) neighbors.push(board[index - CONFIG.cols]);
-      board[index] = maybeCloneNeighbor(neighbors);
+
+      board[index] = maybeCloneNeighbor(neighbors, {
+        allowBonus: forceTrigger ? false : allowBonus,
+        profileName
+      });
     }
+
+    if (forceTrigger) {
+      for (const index of randomUniqueIndices(forcedBonusCount)) {
+        board[index] = BONUS_KEY;
+      }
+    }
+
     return board;
   }
 
@@ -224,7 +301,7 @@
     return PAY_BANDS.findIndex(band => count >= band.min && count <= band.max);
   }
 
-  function evaluateBoard(board, fireCells = null) {
+  function evaluateBoard(board, symbolFire = null) {
     const wins = [];
     const remove = new Set();
 
@@ -257,10 +334,10 @@
         if (band < 0) continue;
 
         const baseAmountX = symbol.pays[band];
-        const fireMultiplierTotal = fireCells
+        const fireMultiplierTotal = symbolFire
           ? positions.reduce((sum, index) => {
-              const fireCell = fireCells[index];
-              return sum + (fireCell && fireCell.state !== FIRE_STATE.NORMAL ? fireCell.multiplier : 0);
+              const fire = symbolFire[index];
+              return sum + (fire && fire.state !== FIRE_STATE.NORMAL ? fire.multiplier : 0);
             }, 0)
           : 0;
 
@@ -289,9 +366,11 @@
     };
   }
 
-  function cascadeBoard(board, removePositions) {
+  function cascadeBoard(board, removePositions, symbolFire = null, options = {}) {
+    const { allowBonus = true, profileName = currentRngProfileName() } = options;
     const remove = new Set(removePositions);
     const next = Array(CONFIG.cells).fill(null);
+    const nextSymbolFire = symbolFire ? createSymbolFireState() : null;
     const spawned = [];
     const movements = new Map();
 
@@ -304,6 +383,15 @@
 
         const destinationIndex = targetRow * CONFIG.cols + col;
         next[destinationIndex] = board[sourceIndex];
+
+        // Fire state is attached to the surviving symbol and travels with it.
+        if (nextSymbolFire) {
+          const fire = symbolFire[sourceIndex];
+          nextSymbolFire[destinationIndex] = fire
+            ? { state: fire.state, multiplier: fire.multiplier }
+            : { state: FIRE_STATE.NORMAL, multiplier: 0 };
+        }
+
         movements.set(destinationIndex, {
           rows: targetRow - row,
           col,
@@ -320,7 +408,13 @@
         if (col > 0 && next[index - 1] != null) neighbors.push(next[index - 1]);
         if (targetRow < CONFIG.rows - 1 && next[index + CONFIG.cols] != null) neighbors.push(next[index + CONFIG.cols]);
 
-        next[index] = maybeCloneNeighbor(neighbors);
+        next[index] = maybeCloneNeighbor(neighbors, { allowBonus, profileName });
+
+        // A newly spawned symbol has no inherited fire state.
+        if (nextSymbolFire) {
+          nextSymbolFire[index] = { state: FIRE_STATE.NORMAL, multiplier: 0 };
+        }
+
         spawned.push(index);
         movements.set(index, {
           rows: spawnCount,
@@ -331,7 +425,7 @@
       }
     }
 
-    return { board: next, spawned, movements };
+    return { board: next, symbolFire: nextSymbolFire, spawned, movements };
   }
 
   function spriteMarkup(key, label = '', bonusCount = 0, forceOff = false, bonusActive = state.bonusActive) {
@@ -398,6 +492,7 @@
     const actualBonusCount = state.board.reduce((count, key) => count + (key === BONUS_KEY ? 1 : 0), 0);
     const bonusCount = visualBonusCount ?? actualBonusCount;
     updateAlarmDebugStatus(bonusCount);
+    el.board.classList.toggle('backdraft-flash', state.backdraftFlash);
 
     el.board.innerHTML = state.board.map((key, index) => {
       const symbol = SYMBOLS.find(item => item.key === key);
@@ -405,11 +500,16 @@
       if (symbol?.wild) classes.push('wild');
       if (symbol?.bonus) classes.push('bonus');
 
-      const fireCell = state.fireCells[index];
-      if (fireCell?.state === FIRE_STATE.BURNING) classes.push('fire-burning');
-      if (fireCell?.state === FIRE_STATE.SMOULDERING) classes.push('fire-smouldering');
-      const fireMarkup = fireCell && fireCell.state !== FIRE_STATE.NORMAL
-        ? `<span class="fire-state-placeholder ${fireCell.state}" aria-hidden="true"><strong>${fireCell.state === FIRE_STATE.BURNING ? 'FIRE' : 'SMOULDER'}</strong><em>${fireCell.multiplier}×</em></span>`
+      const fire = state.symbolFire[index];
+      if (fire?.state === FIRE_STATE.BURNING) classes.push('fire-burning');
+      if (fire?.state === FIRE_STATE.SMOULDERING) classes.push('fire-smouldering');
+
+      const row = Math.floor(index / CONFIG.cols);
+      if (state.sprayVisual && row === state.sprayVisual.row) classes.push('spray-line-row');
+      if (state.sprayVisual?.phase === 'drip' && row > state.sprayVisual.row) classes.push('spray-drip-cell');
+
+      const fireMarkup = fire && fire.state !== FIRE_STATE.NORMAL
+        ? `<span class="fire-state-placeholder ${fire.state}" aria-hidden="true"><strong>${fire.state === FIRE_STATE.BURNING ? 'FIRE' : 'SMOULDER'}</strong><em>${fire.multiplier}×</em></span>`
         : '';
 
       return `<div class="${classes.join(' ')}" data-index="${index}" role="gridcell" aria-label="${symbol?.label || key}">${spriteMarkup(key, symbol?.label || key, bonusCount, state.forceAlarmOff, state.bonusActive)}${fireMarkup}</div>`;
@@ -663,7 +763,8 @@
     state.fireEvents = {
       newIgnition: [],
       spread: [],
-      sprayRows: [],
+      sprayRow: null,
+      sprayAffectedRows: [],
       extinguished: [],
       backdraftEligible: false,
       backdraftTriggered: false,
@@ -671,8 +772,10 @@
     };
   }
 
-  function resetFireGrid() {
-    state.fireCells = createFireGrid();
+  function resetSymbolFire() {
+    state.symbolFire = createSymbolFireState();
+    state.sprayVisual = null;
+    state.backdraftFlash = false;
     resetFireEventState();
   }
 
@@ -683,18 +786,18 @@
       freeSpinsRemaining: state.freeSpinsRemaining,
       ...data
     });
-    if (state.fireHistory.length > 60) state.fireHistory.shift();
+    if (state.fireHistory.length > 100) state.fireHistory.shift();
   }
 
-  function burningCells() {
-    return state.fireCells
-      .map((cell, index) => cell.state === FIRE_STATE.BURNING ? index : -1)
+  function burningSymbols() {
+    return state.symbolFire
+      .map((fire, index) => fire.state === FIRE_STATE.BURNING ? index : -1)
       .filter(index => index >= 0);
   }
 
-  function smoulderingCells() {
-    return state.fireCells
-      .map((cell, index) => cell.state === FIRE_STATE.SMOULDERING ? index : -1)
+  function smoulderingSymbols() {
+    return state.symbolFire
+      .map((fire, index) => fire.state === FIRE_STATE.SMOULDERING ? index : -1)
       .filter(index => index >= 0);
   }
 
@@ -703,63 +806,70 @@
     return items[Math.floor(randomFloat() * items.length)];
   }
 
-  function igniteCell(index, source = 'ignition') {
-    const cell = state.fireCells[index];
-    if (!cell || cell.state === FIRE_STATE.BURNING) return false;
+  function igniteSymbol(index, source = 'ignition') {
+    const fire = state.symbolFire[index];
+    if (!fire || fire.state === FIRE_STATE.BURNING) return false;
 
-    if (cell.state === FIRE_STATE.NORMAL) {
-      cell.state = FIRE_STATE.BURNING;
-      cell.multiplier = 2;
+    if (fire.state === FIRE_STATE.NORMAL) {
+      fire.state = FIRE_STATE.BURNING;
+      fire.multiplier = 2;
       state.fireEvents.newIgnition.push(index);
       logFireEvent('ignite', { index, multiplier: 2, source });
       return true;
     }
 
-    // Normal reignition: retain multiplier, never double here.
-    cell.state = FIRE_STATE.BURNING;
+    // Normal spread into a Smouldering symbol: reignite at stored value.
+    // Never double here; Backdraft doubling only happens post-Spray.
+    fire.state = FIRE_STATE.BURNING;
     state.fireEvents.reignited.push(index);
-    logFireEvent('reignite', { index, multiplier: cell.multiplier, source, backdraft: false });
+    logFireEvent('reignite', {
+      index,
+      multiplier: fire.multiplier,
+      source,
+      backdraft: false
+    });
     return true;
   }
 
-  function igniteRandomFireCell(source = 'random-ignition') {
-    const eligible = state.fireCells
-      .map((cell, index) => cell.state !== FIRE_STATE.BURNING ? index : -1)
-      .filter(index => index >= 0);
+  function igniteRandomNormalSymbol(source = 'random-ignition') {
+    const eligible = state.symbolFire
+      .map((fire, index) => fire.state === FIRE_STATE.NORMAL ? index : -1)
+      .filter(index => index >= 0 && state.board[index] != null);
 
     const target = randomFrom(eligible);
     if (target == null) return null;
-    igniteCell(target, source);
+    igniteSymbol(target, source);
     return target;
   }
 
-  function spreadFire({ force = false } = {}) {
-    const sources = [...burningCells()];
+  function spreadFire({ force = false, profileName = currentRngProfileName() } = {}) {
+    const sources = [...burningSymbols()];
     const claimed = new Set();
     const spread = [];
     const reignited = [];
+    const chance = currentRngProfile(profileName).fireSpreadChance;
 
     for (const source of sources) {
-      if (!force && randomFloat() >= CONFIG.fireSpreadChance) continue;
+      if (!force && randomFloat() >= chance) continue;
 
       const eligible = orthogonalNeighbors(source).filter(index =>
-        state.fireCells[index].state !== FIRE_STATE.BURNING && !claimed.has(index)
+        state.symbolFire[index].state !== FIRE_STATE.BURNING &&
+        !claimed.has(index) &&
+        state.board[index] != null
       );
+
       const target = randomFrom(eligible);
       if (target == null) continue;
 
       claimed.add(target);
-      const wasSmouldering = state.fireCells[target].state === FIRE_STATE.SMOULDERING;
-      igniteCell(target, 'fire-spread');
+      const wasSmouldering = state.symbolFire[target].state === FIRE_STATE.SMOULDERING;
+      igniteSymbol(target, 'fire-spread');
 
       if (wasSmouldering) reignited.push(target);
       else spread.push(target);
     }
 
-    state.fireEvents.spread = spread;
-    if (reignited.length) {
-      state.fireEvents.reignited.push(...reignited.filter(index => !state.fireEvents.reignited.includes(index)));
-    }
+    state.fireEvents.spread = [...spread];
 
     if (spread.length || reignited.length) {
       logFireEvent('spread', { spread: [...spread], reignited: [...reignited] });
@@ -768,53 +878,65 @@
     return { spread, reignited };
   }
 
-  function randomSprayRows() {
-    const count = 1 + Math.floor(randomFloat() * CONFIG.rows);
-    const rows = Array.from({ length: CONFIG.rows }, (_, row) => row);
-
-    for (let i = rows.length - 1; i > 0; i--) {
-      const j = Math.floor(randomFloat() * (i + 1));
-      [rows[i], rows[j]] = [rows[j], rows[i]];
+  function selectSprayRow(profileName = currentRngProfileName()) {
+    if (profileName !== 'large') {
+      return Math.floor(randomFloat() * CONFIG.rows);
     }
 
-    return rows.slice(0, count).sort((a, b) => a - b);
+    // Large-outcome profile still allows every row, but favors middle rows:
+    // enough water below to build multipliers while leaving fire above to enable Backdraft.
+    const weightedRows = [0, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4, 5, 6];
+    return randomFrom(weightedRows);
   }
 
-  function sprayFire(rowsOverride = null) {
-    // IMPORTANT: Backdraft is evaluated ONLY inside this Spray resolution.
+  function applySprayToSymbols(row) {
     resetFireEventState();
 
-    const rows = rowsOverride ? [...new Set(rowsOverride)].sort((a, b) => a - b) : randomSprayRows();
-    const rowSet = new Set(rows);
+    const affectedRows = Array.from(
+      { length: CONFIG.rows - row },
+      (_, offset) => row + offset
+    );
+    const affected = new Set(affectedRows);
     const extinguished = [];
 
+    // Direct hose row + all rows beneath it from dripping water.
     for (let index = 0; index < CONFIG.cells; index++) {
-      const row = Math.floor(index / CONFIG.cols);
-      const cell = state.fireCells[index];
-      if (!rowSet.has(row) || cell.state !== FIRE_STATE.BURNING) continue;
+      const symbolRow = Math.floor(index / CONFIG.cols);
+      const fire = state.symbolFire[index];
 
-      cell.state = FIRE_STATE.SMOULDERING;
-      cell.multiplier *= 2;
+      if (!affected.has(symbolRow) || fire.state !== FIRE_STATE.BURNING) continue;
+
+      fire.state = FIRE_STATE.SMOULDERING;
+      fire.multiplier *= 2;
       extinguished.push(index);
     }
 
-    state.fireEvents.sprayRows = rows;
-    state.fireEvents.extinguished = extinguished;
-    logFireEvent('spray', { rows: [...rows], extinguished: [...extinguished] });
+    state.fireEvents.sprayRow = row;
+    state.fireEvents.sprayAffectedRows = affectedRows;
+    state.fireEvents.extinguished = [...extinguished];
 
-    const survivingBurning = burningCells();
-    const currentSmouldering = new Set(smoulderingCells());
+    logFireEvent('spray', {
+      row,
+      affectedRows: [...affectedRows],
+      extinguished: [...extinguished]
+    });
 
-    const eligible = survivingBurning.length > 0 && survivingBurning.some(index =>
-      orthogonalNeighbors(index).some(neighbor => currentSmouldering.has(neighbor))
-    );
+    // Backdraft may ONLY be decided here, immediately after Spray fully resolves.
+    const survivingBurning = burningSymbols();
+    const currentSmouldering = new Set(smoulderingSymbols());
 
-    state.fireEvents.backdraftEligible = eligible;
+    const backdraftEligible =
+      survivingBurning.length > 0 &&
+      survivingBurning.some(index =>
+        orthogonalNeighbors(index).some(neighbor => currentSmouldering.has(neighbor))
+      );
 
-    if (!eligible) {
-      state.fireEvents.backdraftTriggered = false;
+    state.fireEvents.backdraftEligible = backdraftEligible;
+
+    if (!backdraftEligible) {
       return {
-        rows,
+        row,
+        affectedRows,
         extinguished,
         backdraftEligible: false,
         backdraftTriggered: false,
@@ -822,21 +944,24 @@
       };
     }
 
-    // BACKDRAFT: every smouldering cell doubles again and reignites.
     const reignited = [];
+
+    // Backdraft doubles and reignites ALL Smouldering symbols on the board.
     for (const index of currentSmouldering) {
-      const cell = state.fireCells[index];
-      cell.multiplier *= 2;
-      cell.state = FIRE_STATE.BURNING;
+      const fire = state.symbolFire[index];
+      fire.multiplier *= 2;
+      fire.state = FIRE_STATE.BURNING;
       reignited.push(index);
     }
 
     state.fireEvents.backdraftTriggered = true;
     state.fireEvents.reignited = [...reignited];
+
     logFireEvent('backdraft', { reignited: [...reignited] });
 
     return {
-      rows,
+      row,
+      affectedRows,
       extinguished,
       backdraftEligible: true,
       backdraftTriggered: true,
@@ -850,29 +975,53 @@
     await sleep(CONFIG.fireEventPauseMs);
   }
 
-  async function resolveSpreadOpportunity(force = false) {
-    const result = spreadFire({ force });
+  async function resolveSpreadOpportunity(force = false, profileName = currentRngProfileName()) {
+    const result = spreadFire({ force, profileName });
     if (!result.spread.length && !result.reignited.length) return result;
 
     const detail = result.reignited.length
       ? `${result.spread.length} NEW · ${result.reignited.length} REIGNITED`
-      : `${result.spread.length} NEW CELL${result.spread.length === 1 ? '' : 'S'}`;
+      : `${result.spread.length} NEW SYMBOL${result.spread.length === 1 ? '' : 'S'}`;
 
     await showFireEvent('FIRE SPREAD', detail);
     return result;
   }
 
-  async function resolveSprayEvent(rowsOverride = null) {
-    const result = sprayFire(rowsOverride);
-    await showFireEvent(
+  async function resolveSprayEvent(profileName = currentRngProfileName()) {
+    const row = selectSprayRow(profileName);
+
+    // Placeholder physical hose sequence:
+    // horizontal blast first, then downward drip, then extinguish calculation.
+    state.sprayVisual = { row, phase: 'line' };
+    renderBoard();
+    setMessage('PUT OUT FLAMES', `HOSE · ROW ${row + 1}`);
+    await sleep(CONFIG.sprayLinePauseMs);
+
+    state.sprayVisual = { row, phase: 'drip' };
+    renderBoard();
+    setMessage('PUT OUT FLAMES', `WATER DRIPPING BELOW ROW ${row + 1}`);
+    await sleep(CONFIG.sprayDripPauseMs);
+
+    const result = applySprayToSymbols(row);
+    state.sprayVisual = null;
+    renderBoard();
+
+    setMessage(
       'PUT OUT FLAMES',
-      `ROWS ${result.rows.map(row => row + 1).join(', ')} · ${result.extinguished.length} OUT`
+      `ROW ${row + 1} ↓ · ${result.extinguished.length} EXTINGUISHED`
     );
+    await sleep(CONFIG.fireEventPauseMs);
 
     if (result.backdraftTriggered) {
-      await showFireEvent('BACKDRAFT', `${result.reignited.length} CELLS REIGNITED`);
-      // Newly reignited cells get a normal spread opportunity. This spread cannot itself trigger Backdraft.
-      await resolveSpreadOpportunity(false);
+      state.backdraftFlash = true;
+      renderBoard();
+      setMessage('BACKDRAFT', `${result.reignited.length} SMOULDERING SYMBOLS REIGNITED`);
+      await sleep(CONFIG.fireEventPauseMs + 140);
+      state.backdraftFlash = false;
+      renderBoard();
+
+      // Backdraft may lead to normal spread. That spread cannot itself trigger Backdraft.
+      await resolveSpreadOpportunity(false, profileName);
     }
 
     return result;
@@ -885,16 +1034,37 @@
     return 0;
   }
 
-  function createBonusSpinBoard() {
-    // Retrigger behavior is intentionally not added yet. Bonus symbols are replaced
-    // during free spins so the new fire system can be validated independently.
-    return createInitialBoard().map(key => {
-      if (key !== BONUS_KEY) return key;
-      return REGULAR[Math.floor(randomFloat() * REGULAR.length)].key;
-    });
+  function createBonusSpinBoard(tier, profileName = currentRngProfileName()) {
+    const previousBoard = state.board;
+    const previousFire = state.symbolFire;
+    const freshBoard = createInitialBoard({ allowBonus: false, profileName });
+
+    if (tier !== 5) {
+      state.symbolFire = createSymbolFireState();
+      return freshBoard;
+    }
+
+    // 5-Alarm persistence is symbol-based, not cell-based:
+    // only fire-affected symbols survive into the next free spin.
+    // Everything normal rerolls. The affected symbol and its fire metadata remain together.
+    const nextFire = createSymbolFireState();
+
+    for (let index = 0; index < CONFIG.cells; index++) {
+      const fire = previousFire[index];
+      if (!fire || fire.state === FIRE_STATE.NORMAL || previousBoard[index] == null) continue;
+
+      freshBoard[index] = previousBoard[index];
+      nextFire[index] = {
+        state: fire.state,
+        multiplier: fire.multiplier
+      };
+    }
+
+    state.symbolFire = nextFire;
+    return freshBoard;
   }
 
-  async function runFireBonus(tier, bet, { debug = false } = {}) {
+  async function runFireBonus(tier, bet, { profileName = currentRngProfileName() } = {}) {
     const definition = BONUS_TIERS[tier];
     if (!definition) return 0;
 
@@ -904,7 +1074,7 @@
     state.bonusActive = false;
     state.forceAlarmOff = false;
     state.fireHistory = [];
-    resetFireGrid();
+    resetSymbolFire();
 
     let bonusTotalX = 0;
 
@@ -917,39 +1087,39 @@
       state.freeSpinsRemaining = definition.freeSpins - spinNumber + 1;
       resetFireEventState();
 
-      // 3- and 4-Alarm rounds are self-contained. 5-Alarm is the persistent-fire tier.
-      if (tier !== 5) resetFireGrid();
+      // Build the actual free-spin board first so fire is attached to real symbols.
+      state.board = createBonusSpinBoard(tier, profileName);
 
-      if (tier === 3) {
-        if (randomFloat() < CONFIG.fireThreeIgnitionChance) {
-          igniteRandomFireCell('3-alarm-ignition');
-          await showFireEvent('IGNITION', `FREE SPIN ${spinNumber}`);
-        }
-      } else if (tier === 4) {
-        igniteRandomFireCell('4-alarm-round-start');
-        await showFireEvent('ROUND IGNITION', `FREE SPIN ${spinNumber}`);
-      } else if (tier === 5 && burningCells().length === 0) {
-        // Complete extinguishes do not cause Backdraft. A later independent ignition
-        // can restart fire and may reignite Smouldering cells without doubling them.
-        igniteRandomFireCell('5-alarm-restart');
-        await showFireEvent('NEW IGNITION', `FREE SPIN ${spinNumber}`);
-      }
-
-      state.board = createBonusSpinBoard();
       setMessage(
         `${definition.label} · FREE SPIN ${spinNumber}/${definition.freeSpins}`,
         `${state.freeSpinsRemaining} INCLUDING THIS SPIN`
       );
       await renderBoardWithGravity(initialGravityPlan());
 
-      // Fire gets an opportunity to spread once the new board is in place.
-      await resolveSpreadOpportunity(false);
+      const profile = currentRngProfile(profileName);
+
+      if (tier === 3) {
+        if (randomFloat() < profile.fireThreeIgnitionChance) {
+          igniteRandomNormalSymbol('3-alarm-ignition');
+          await showFireEvent('IGNITION', `FREE SPIN ${spinNumber}`);
+        }
+      } else if (tier === 4) {
+        igniteRandomNormalSymbol('4-alarm-round-start');
+        await showFireEvent('ROUND IGNITION', `FREE SPIN ${spinNumber}`);
+      } else if (tier === 5 && burningSymbols().length === 0) {
+        // A fresh ignition only targets a Normal symbol.
+        // Old Smouldering symbols can only reignite through normal spread.
+        igniteRandomNormalSymbol('5-alarm-restart');
+        await showFireEvent('NEW IGNITION', `FREE SPIN ${spinNumber}`);
+      }
+
+      await resolveSpreadOpportunity(false, profileName);
 
       let spinX = 0;
       let cascadeNumber = 0;
 
       while (cascadeNumber < CONFIG.maxCascades) {
-        const result = evaluateBoard(state.board, state.fireCells);
+        const result = evaluateBoard(state.board, state.symbolFire);
         if (!result.wins.length) break;
 
         cascadeNumber++;
@@ -957,19 +1127,25 @@
         bonusTotalX += result.totalX;
         await animateWin(result, cascadeNumber);
 
-        const cascaded = cascadeBoard(state.board, result.remove);
+        const cascaded = cascadeBoard(
+          state.board,
+          result.remove,
+          state.symbolFire,
+          { allowBonus: false, profileName }
+        );
+
         state.board = cascaded.board;
+        state.symbolFire = cascaded.symbolFire;
         await renderBoardWithGravity(cascaded.movements, { isCascade: false });
 
-        // Fire spread after each cascade uses the same normal spread/reignition rules.
-        await resolveSpreadOpportunity(false);
+        // Surviving Burning symbols moved with their symbols and can spread from new locations.
+        await resolveSpreadOpportunity(false, profileName);
       }
 
       if (tier === 4) {
-        // Every 4-Alarm round ends with Spray.
-        await resolveSprayEvent();
-      } else if (tier === 5 && randomFloat() < CONFIG.fireFiveSprayChance) {
-        await resolveSprayEvent();
+        await resolveSprayEvent(profileName);
+      } else if (tier === 5 && randomFloat() < profile.fireFiveSprayChance) {
+        await resolveSprayEvent(profileName);
       }
 
       state.freeSpinsRemaining = definition.freeSpins - spinNumber;
@@ -987,244 +1163,35 @@
     state.activeBonusType = 0;
     state.freeSpinsRemaining = 0;
     state.freeSpinsTotal = 0;
-
-    if (!debug) {
-      resetFireGrid();
-      renderBoard();
-    }
+    resetSymbolFire();
+    renderBoard();
 
     return bonusTotalX;
   }
 
-  async function runDebugFireBonus(tier) {
+  function gameModeLabel(mode = state.pendingGameMode) {
+    if (mode === 'force3') return 'FORCE 3-ALARM · NEXT SPIN';
+    if (mode === 'force4') return 'FORCE 4-ALARM · NEXT SPIN';
+    if (mode === 'force5') return 'FORCE 5-ALARM · NEXT SPIN';
+    if (mode === 'large') return 'FORCE LARGE OUTCOME · NEXT SPIN';
+    return 'NORMAL GAME';
+  }
+
+  function updateGameModeStatus() {
+    if (el.debugGameMode) el.debugGameMode.textContent = gameModeLabel();
+  }
+
+  function setGameMode(mode) {
     if (state.busy) return;
-    state.busy = true;
-    updateUi();
-    el.debugDialog?.close();
+    state.pendingGameMode = ['normal', 'force3', 'force4', 'force5', 'large'].includes(mode)
+      ? mode
+      : 'normal';
 
-    const totalX = await runFireBonus(tier, CONFIG.bets[state.betIndex], { debug: true });
-
-    setMessage(`DEBUG · ${BONUS_TIERS[tier].label} COMPLETE`, `${totalX.toFixed(2)}× · STATE PRESERVED`);
-    state.busy = false;
-    updateUi();
-  }
-
-  async function runDebugFireAction(action) {
-    if (state.busy) return;
-    el.debugDialog?.close();
-
-    if (action === 'clear') {
-      resetFireGrid();
-      renderBoard();
-      setMessage('DEBUG · FIRE STATE CLEARED', 'NORMAL CELLS');
-      return;
-    }
-
-    if (action === 'ignite') {
-      resetFireEventState();
-      const index = igniteRandomFireCell('debug');
-      renderBoard();
-      setMessage('DEBUG · IGNITION', index == null ? 'NO ELIGIBLE CELL' : `CELL ${index + 1} · 2×/STORED`);
-      return;
-    }
-
-    if (action === 'spread') {
-      if (!burningCells().length) igniteRandomFireCell('debug-seed');
-      await resolveSpreadOpportunity(true);
-      return;
-    }
-
-    if (action === 'spray') {
-      if (!burningCells().length) {
-        igniteRandomFireCell('debug-spray-seed');
-        igniteRandomFireCell('debug-spray-seed');
-        igniteRandomFireCell('debug-spray-seed');
-      }
-      await resolveSprayEvent();
-      return;
-    }
-
-    if (action === 'backdraft') {
-      resetFireGrid();
-
-      // Deterministic setup: row 4 gets sprayed; row 3 fire survives directly above it.
-      // An older Smouldering cell elsewhere proves Backdraft affects ALL Smouldering cells.
-      state.fireCells[17] = { state: FIRE_STATE.BURNING, multiplier: 2 };
-      state.fireCells[24] = { state: FIRE_STATE.BURNING, multiplier: 2 };
-      state.fireCells[10] = { state: FIRE_STATE.SMOULDERING, multiplier: 4 };
-
-      renderBoard();
-      setMessage('DEBUG · BACKDRAFT SETUP', 'SPRAYING ROW 4');
-      await sleep(300);
-      await resolveSprayEvent([3]);
-    }
-  }
-
-  const DEBUG_BONUS_POSITIONS = Object.freeze([
-    1 * CONFIG.cols + 0,
-    1 * CONFIG.cols + 2,
-    2 * CONFIG.cols + 3,
-    3 * CONFIG.cols + 4,
-    4 * CONFIG.cols + 5
-  ]);
-
-  const DEBUG_WIN_POSITIONS = Object.freeze([
-    5 * CONFIG.cols + 0,
-    5 * CONFIG.cols + 1,
-    5 * CONFIG.cols + 2,
-    5 * CONFIG.cols + 3,
-    6 * CONFIG.cols + 0,
-    6 * CONFIG.cols + 1,
-    6 * CONFIG.cols + 2,
-    6 * CONFIG.cols + 3
-  ]);
-
-  function createDebugFeatureBoard(bonusCount, withWin = false) {
-    const keys = ['helmet', 'axe', 'hydrant', 'suit', 'radio', 'dalmatian', 'chief', 'extinguisher'];
-    const board = Array.from({ length: CONFIG.cells }, (_, index) => {
-      const row = Math.floor(index / CONFIG.cols);
-      const col = index % CONFIG.cols;
-      return keys[(row * 3 + col * 5) % keys.length];
-    });
-
-    if (withWin) {
-      DEBUG_WIN_POSITIONS.forEach(index => {
-        board[index] = 'axe';
-      });
-    }
-
-    DEBUG_BONUS_POSITIONS.slice(0, bonusCount).forEach(index => {
-      board[index] = BONUS_KEY;
-    });
-
-    return board;
-  }
-
-  function debugFullDropPlan(existingBonusCount = 0) {
-    const existing = new Set(DEBUG_BONUS_POSITIONS.slice(0, existingBonusCount));
-    const movements = new Map();
-
-    for (let index = 0; index < CONFIG.cells; index++) {
-      const stationaryBonus = existing.has(index);
-      movements.set(index, {
-        rows: stationaryBonus ? 0 : CONFIG.rows,
-        col: index % CONFIG.cols,
-        spawned: !stationaryBonus
-      });
-    }
-
-    return movements;
-  }
-
-  function debugWinResult() {
-    return {
-      remove: [...DEBUG_WIN_POSITIONS],
-      totalX: 0.15,
-      wins: [{
-        symbol: 'axe',
-        label: 'Fire Axe',
-        count: DEBUG_WIN_POSITIONS.length,
-        amountX: 0.15,
-        positions: [...DEBUG_WIN_POSITIONS]
-      }]
-    };
-  }
-
-  async function runDebugBonusDrop(count) {
-    if (state.busy) return;
-
-    state.busy = true;
-    state.forceAlarmOff = false;
-    state.activeBonusType = 0;
-    resetFireGrid();
-    updateUi();
-    el.debugDialog?.close();
-
-    state.board = createDebugFeatureBoard(count, false);
-    setMessage(`DEBUG · ${count} BONUS DROP`, 'LANDING TEST');
-    await renderBoardWithGravity(debugFullDropPlan(0), {
-      isCascade: true,
-      forceAnticipation: true
-    });
-
-    if (count >= 3) {
-      state.bonusActive = true;
-      renderBoard();
-    }
-
-    setMessage(`DEBUG · ${count} BONUS DROP COMPLETE`, count >= 3 ? 'BONUS ACTIVE' : 'LANDING TEST');
-    state.busy = false;
-    updateUi();
-  }
-
-  async function runDebugBonusChain(targetCount) {
-    if (state.busy) return;
-
-    state.busy = true;
-    state.forceAlarmOff = false;
-    state.activeBonusType = 0;
-    resetFireGrid();
-    updateUi();
-    el.debugDialog?.close();
-
-    for (let stage = 1; stage <= targetCount; stage++) {
-      const hasAnotherCascade = stage < targetCount;
-      state.board = createDebugFeatureBoard(stage, hasAnotherCascade);
-
-      setMessage(
-        `DEBUG CHAIN · ${stage} ALARM${stage === 1 ? '' : 'S'}`,
-        stage === 1 ? 'INITIAL DROP' : `CASCADE ${stage - 1}`
-      );
-
-      await renderBoardWithGravity(debugFullDropPlan(stage - 1), {
-        isCascade: stage > 1,
-        forceAnticipation: stage > 1
-      });
-
-      if (hasAnotherCascade) {
-        await sleep(300);
-        await animateWin(debugWinResult(), stage);
-        await sleep(180);
-      }
-    }
-
-    if (targetCount >= 3) {
-      state.bonusActive = true;
-      renderBoard();
-    }
-
+    updateGameModeStatus();
     setMessage(
-      `DEBUG CHAIN COMPLETE · ${targetCount} ALARM${targetCount === 1 ? '' : 'S'}`,
-      targetCount >= 3 ? 'BONUS ACTIVE' : 'TEST COMPLETE'
+      gameModeLabel(),
+      state.pendingGameMode === 'normal' ? 'REAL RNG · NATURAL TRIGGERS' : 'ONE-SHOT TEST MODE'
     );
-    state.busy = false;
-    updateUi();
-  }
-
-  function setDebugAlarmCount(count) {
-    if (state.busy) return;
-
-    const cleanBoard = createInitialBoard().map(key => key === BONUS_KEY ? 'helmet' : key);
-    const placements = [16, 24, 32];
-
-    for (let index = 0; index < Math.min(count, placements.length); index++) {
-      cleanBoard[placements[index]] = BONUS_KEY;
-    }
-
-    state.board = cleanBoard;
-    state.forceAlarmOff = false;
-    state.bonusActive = false;
-    state.activeBonusType = 0;
-    resetFireGrid();
-    renderBoard();
-
-    const label =
-      count === 0 ? 'NO ALARMS' :
-      count === 1 ? '1 ALARM · STATIC' :
-      count === 2 ? '2 ALARMS · ANIMATED' :
-      '3 ALARMS · ANIMATED';
-
-    setMessage(`DEBUG · ${label}`, 'VISUAL TEST');
     el.debugDialog?.close();
   }
 
@@ -1269,11 +1236,26 @@
 
   async function playSpin() {
     if (state.busy) return;
+
     const bet = CONFIG.bets[state.betIndex];
     if (state.balance < bet) {
       setMessage('INSUFFICIENT BALANCE');
       return;
     }
+
+    const spinMode = state.pendingGameMode;
+    const forcedTier =
+      spinMode === 'force3' ? 3 :
+      spinMode === 'force4' ? 4 :
+      spinMode === 'force5' || spinMode === 'large' ? 5 :
+      0;
+
+    const profileName = spinMode === 'large' ? 'large' : 'normal';
+
+    // Forced modes are one-shot. The next spin consumes the request.
+    state.pendingGameMode = 'normal';
+    state.largeOutcomeActive = profileName === 'large';
+    updateGameModeStatus();
 
     state.busy = true;
     state.balance -= bet;
@@ -1281,16 +1263,26 @@
     state.stats.wagered += bet;
     state.lastWinX = 0;
     updateUi();
-    setMessage('RESPONDING…', 'NEW BOARD');
+
+    setMessage(
+      spinMode === 'normal' ? 'RESPONDING…' : gameModeLabel(spinMode),
+      spinMode === 'normal' ? 'NEW BOARD' : 'FORCING TRIGGER CONDITION ONLY'
+    );
 
     state.forceAlarmOff = false;
     state.bonusActive = false;
     state.activeBonusType = 0;
     state.freeSpinsRemaining = 0;
     state.freeSpinsTotal = 0;
-    resetFireGrid();
+    resetSymbolFire();
 
-    state.board = createInitialBoard();
+    // Forced modes only control the qualifying Alarm count.
+    // Every other symbol still comes from the shared board generator.
+    state.board = createInitialBoard({
+      forcedBonusCount: forcedTier,
+      profileName
+    });
+
     await renderBoardWithGravity(initialGravityPlan());
 
     let totalX = 0;
@@ -1304,7 +1296,18 @@
       totalX += result.totalX;
       await animateWin(result, cascadeNumber);
 
-      const cascaded = cascadeBoard(state.board, result.remove);
+      const cascaded = cascadeBoard(
+        state.board,
+        result.remove,
+        null,
+        {
+          // Preserve the exact forced trigger tier during the qualifying base spin.
+          // Normal Game retains natural bonus-symbol generation on cascade refills.
+          allowBonus: forcedTier === 0,
+          profileName
+        }
+      );
+
       state.board = cascaded.board;
       await renderBoardWithGravity(cascaded.movements, { isCascade: true });
     }
@@ -1325,13 +1328,15 @@
       setMessage(`${definition.label} TRIGGERED`, `${definition.freeSpins} FREE SPINS`);
       await sleep(650);
 
-      totalX += await runFireBonus(triggeredTier, bet);
+      // Natural, forced-trigger, and large-outcome modes all use this same bonus engine.
+      totalX += await runFireBonus(triggeredTier, bet, { profileName });
     }
 
     const creditsWon = totalX * bet;
     state.balance += creditsWon;
     state.stats.won += creditsWon;
     state.lastWinX = totalX;
+    state.largeOutcomeActive = false;
 
     setMessage(
       totalX > 0 ? `TOTAL WIN ${totalX.toFixed(2)}×` : 'NO WIN',
@@ -1425,32 +1430,19 @@
   el.mathClose.addEventListener('click', () => el.mathDialog.close());
   el.simulateBtn.addEventListener('click', runSimulation);
   el.debugBtn.addEventListener('click', () => {
-    updateAlarmDebugStatus(state.board.filter(key => key === BONUS_KEY).length);
+    updateGameModeStatus();
     el.debugDialog.showModal();
   });
   el.debugClose.addEventListener('click', () => el.debugDialog.close());
-  document.querySelectorAll('[data-alarm-count]').forEach(button => {
-    button.addEventListener('click', () => setDebugAlarmCount(Number(button.dataset.alarmCount)));
-  });
 
-  document.querySelectorAll('[data-bonus-drop-test]').forEach(button => {
-    button.addEventListener('click', () => runDebugBonusDrop(Number(button.dataset.bonusDropTest)));
-  });
-
-  document.querySelectorAll('[data-bonus-chain-test]').forEach(button => {
-    button.addEventListener('click', () => runDebugBonusChain(Number(button.dataset.bonusChainTest)));
-  });
-
-  document.querySelectorAll('[data-fire-bonus-test]').forEach(button => {
-    button.addEventListener('click', () => runDebugFireBonus(Number(button.dataset.fireBonusTest)));
-  });
-
-  document.querySelectorAll('[data-fire-action]').forEach(button => {
-    button.addEventListener('click', () => runDebugFireAction(button.dataset.fireAction));
+  document.querySelectorAll('[data-game-mode]').forEach(button => {
+    button.addEventListener('click', () => setGameMode(button.dataset.gameMode));
   });
 
   renderPaytable();
   state.board = createInitialBoard();
+  state.symbolFire = createSymbolFireState();
+  updateGameModeStatus();
   renderBoard();
   updateUi();
 })();
