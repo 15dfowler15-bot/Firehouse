@@ -9,6 +9,9 @@
     targetRtp: 0.96,
     clumpChance: 0.5478,
     maxCascades: 60,
+    bonusAnticipationPauseMs: 500,
+    bonusAnticipationStepMs: 100,
+    maxBonusAnticipation: 5,
     bets: [0.20, 0.50, 1.00, 2.00, 5.00, 10.00]
   });
 
@@ -281,8 +284,39 @@
       '3+ ALARM ANIMATION';
   }
 
-  function renderBoard() {
-    const bonusCount = state.board.reduce((count, key) => count + (key === BONUS_KEY ? 1 : 0), 0);
+  function bonusStateClass(bonusCount, forceOff = false) {
+    if (forceOff || bonusCount <= 1) return 'symbol-bonus-one';
+    if (bonusCount === 2) return 'symbol-bonus-two';
+    return 'symbol-bonus-three';
+  }
+
+  function applyBonusVisualCount(bonusCount) {
+    const stateClass = bonusStateClass(bonusCount, state.forceAlarmOff);
+    el.board.querySelectorAll('.symbol-bonus').forEach(sprite => {
+      sprite.classList.remove('symbol-bonus-one', 'symbol-bonus-two', 'symbol-bonus-three');
+      sprite.classList.add(stateClass);
+    });
+    updateAlarmDebugStatus(bonusCount);
+  }
+
+  function setAnticipationColumns(columns) {
+    const active = new Set(columns);
+    el.board.classList.toggle('bonus-anticipation', active.size > 0);
+
+    el.board.querySelectorAll('.cell').forEach(cell => {
+      const index = Number(cell.dataset.index);
+      const col = index % CONFIG.cols;
+      cell.classList.toggle('anticipation-column', active.has(col));
+    });
+  }
+
+  function clearAnticipationColumns() {
+    setAnticipationColumns([]);
+  }
+
+  function renderBoard(visualBonusCount = null) {
+    const actualBonusCount = state.board.reduce((count, key) => count + (key === BONUS_KEY ? 1 : 0), 0);
+    const bonusCount = visualBonusCount ?? actualBonusCount;
     updateAlarmDebugStatus(bonusCount);
 
     el.board.innerHTML = state.board.map((key, index) => {
@@ -307,20 +341,31 @@
     return movements;
   }
 
-  async function renderBoardWithGravity(movements) {
-    renderBoard();
+  async function renderBoardWithGravity(movements, options = {}) {
+    const { isCascade = false, forceAnticipation = false } = options;
 
-    if (!movements?.size) return;
+    if (!movements?.size) {
+      renderBoard();
+      return;
+    }
+
+    const actualBonusCount = state.board.reduce((count, key) => count + (key === BONUS_KEY ? 1 : 0), 0);
+    const spawnedBonusIndices = [...movements.entries()]
+      .filter(([index, move]) => move.spawned && state.board[index] === BONUS_KEY)
+      .map(([index]) => index);
+    let visibleBonusCount = Math.max(0, actualBonusCount - spawnedBonusIndices.length);
+
+    renderBoard(visibleBonusCount);
 
     const prefersReducedMotion = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
-    if (prefersReducedMotion || !Element.prototype.animate) return;
+    if (prefersReducedMotion || !Element.prototype.animate) {
+      renderBoard();
+      return;
+    }
 
     const survivorMoves = [];
     const spawnedMoves = [];
 
-    // Hide every tile that will move before the browser can paint the board
-    // at its final positions. Survivors and new symbols are revealed in
-    // separate gravity phases below.
     for (const [index, move] of movements.entries()) {
       if (move.rows <= 0) continue;
 
@@ -329,7 +374,7 @@
 
       cell.style.visibility = 'hidden';
 
-      const item = { cell, move };
+      const item = { index, cell, move };
       if (move.spawned) spawnedMoves.push(item);
       else survivorMoves.push(item);
     }
@@ -352,24 +397,13 @@
       }
     }
 
-    async function animateGravityPhase(items) {
+    async function animateItems(items, delayForItem = () => 0) {
       if (!items.length) return;
 
-      const activeColumns = [...new Set(items.map(({ move }) => move.col))]
-        .sort((a, b) => a - b);
-      const columnRank = new Map(activeColumns.map((col, rank) => [col, rank]));
-
-      // Reveal this phase only after its start positions are committed.
-      void el.board.offsetHeight;
-      for (const { cell } of items) {
-        cell.style.visibility = 'visible';
-      }
-
-      await new Promise(resolve => requestAnimationFrame(resolve));
-
-      const animations = items.map(({ cell, move }) => {
+      const animations = items.map(item => {
+        const { cell, move } = item;
         const startY = -move.rows * pitch;
-        const delay = (columnRank.get(move.col) || 0) * columnStagger;
+        const delay = delayForItem(item, items.indexOf(item));
 
         const animation = cell.animate([
           { transform: `translate3d(0, ${startY}px, 0)`, offset: 0 },
@@ -390,28 +424,273 @@
           });
       });
 
+      void el.board.offsetHeight;
+      for (const { cell } of items) {
+        cell.style.visibility = 'visible';
+      }
+
       await Promise.all(animations);
     }
 
-    // Position BOTH groups before any reveal so newly generated tiles can
-    // never flash in their destination cells.
+    async function animateGravityPhase(items) {
+      if (!items.length) return;
+      const activeColumns = [...new Set(items.map(({ move }) => move.col))].sort((a, b) => a - b);
+      const rank = new Map(activeColumns.map((col, index) => [col, index]));
+      await animateItems(items, ({ move }) => (rank.get(move.col) || 0) * columnStagger);
+    }
+
+    function spawnedByColumn(items) {
+      const groups = new Map();
+      for (const item of items) {
+        if (!groups.has(item.move.col)) groups.set(item.move.col, []);
+        groups.get(item.move.col).push(item);
+      }
+      return groups;
+    }
+
+    function bonusCountForItems(items) {
+      return items.reduce((count, item) => count + (state.board[item.index] === BONUS_KEY ? 1 : 0), 0);
+    }
+
+    async function animateNormalColumns(columns, groups) {
+      if (!columns.length) return;
+      const rank = new Map(columns.map((col, index) => [col, index]));
+      const items = columns.flatMap(col => groups.get(col) || []);
+      await animateItems(items, ({ move }) => (rank.get(move.col) || 0) * columnStagger);
+      visibleBonusCount += bonusCountForItems(items);
+      applyBonusVisualCount(visibleBonusCount);
+    }
+
+    async function animateSlowColumn(col, groups) {
+      const items = [...(groups.get(col) || [])]
+        .sort((a, b) => {
+          const rowA = Math.floor(a.index / CONFIG.cols);
+          const rowB = Math.floor(b.index / CONFIG.cols);
+          return rowB - rowA;
+        });
+
+      await animateItems(items, (_, rank) => rank * CONFIG.bonusAnticipationStepMs);
+      const before = visibleBonusCount;
+      visibleBonusCount += bonusCountForItems(items);
+      applyBonusVisualCount(visibleBonusCount);
+      return { before, after: visibleBonusCount, landedBonus: visibleBonusCount > before };
+    }
+
     prepareMoves(survivorMoves);
     prepareMoves(spawnedMoves);
 
-    // Cascade rhythm:
-    // 1) existing symbols collapse into the holes
-    // 2) hold for half a second
-    // 3) replacement symbols enter from above
     if (survivorMoves.length) {
       await animateGravityPhase(survivorMoves);
+      if (spawnedMoves.length) await sleep(350);
+    }
 
-      if (spawnedMoves.length) {
-        await sleep(350);
+    if (!spawnedMoves.length) {
+      clearAnticipationColumns();
+      await sleep(35);
+      return;
+    }
+
+    const groups = spawnedByColumn(spawnedMoves);
+    const activeColumns = [...groups.keys()].sort((a, b) => a - b);
+    const anticipationEnabled = isCascade || forceAnticipation;
+
+    if (!anticipationEnabled || visibleBonusCount >= CONFIG.maxBonusAnticipation) {
+      await animateNormalColumns(activeColumns, groups);
+      clearAnticipationColumns();
+      await sleep(35);
+      return;
+    }
+
+    let slowMode = visibleBonusCount >= 2 && visibleBonusCount < CONFIG.maxBonusAnticipation;
+    let remainingColumns = [...activeColumns];
+
+    if (!slowMode) {
+      let cumulative = visibleBonusCount;
+      let triggerIndex = -1;
+
+      for (let index = 0; index < activeColumns.length; index++) {
+        const col = activeColumns[index];
+        cumulative += bonusCountForItems(groups.get(col) || []);
+        if (cumulative >= 2) {
+          triggerIndex = index;
+          break;
+        }
+      }
+
+      if (triggerIndex < 0) {
+        await animateNormalColumns(activeColumns, groups);
+        clearAnticipationColumns();
+        await sleep(35);
+        return;
+      }
+
+      const normalColumns = activeColumns.slice(0, triggerIndex + 1);
+      remainingColumns = activeColumns.slice(triggerIndex + 1);
+      await animateNormalColumns(normalColumns, groups);
+
+      if (!remainingColumns.length || visibleBonusCount >= CONFIG.maxBonusAnticipation) {
+        clearAnticipationColumns();
+        await sleep(35);
+        return;
+      }
+
+      setAnticipationColumns(remainingColumns);
+      setMessage('BONUS ANTICIPATION', `${visibleBonusCount} ALARMS`);
+      await sleep(CONFIG.bonusAnticipationPauseMs);
+      slowMode = true;
+    }
+
+    if (slowMode) {
+      setAnticipationColumns(remainingColumns);
+
+      while (remainingColumns.length) {
+        const col = remainingColumns.shift();
+        const result = await animateSlowColumn(col, groups);
+
+        if (visibleBonusCount >= CONFIG.maxBonusAnticipation) {
+          clearAnticipationColumns();
+          if (remainingColumns.length) {
+            await animateNormalColumns(remainingColumns, groups);
+          }
+          remainingColumns = [];
+          break;
+        }
+
+        setAnticipationColumns(remainingColumns);
+
+        if (result.landedBonus && result.after >= 3 && remainingColumns.length) {
+          setMessage('BONUS ANTICIPATION', `${result.after} ALARMS`);
+          await sleep(CONFIG.bonusAnticipationPauseMs);
+        }
       }
     }
 
-    await animateGravityPhase(spawnedMoves);
+    clearAnticipationColumns();
     await sleep(35);
+  }
+
+  const DEBUG_BONUS_POSITIONS = Object.freeze([
+    1 * CONFIG.cols + 0,
+    1 * CONFIG.cols + 2,
+    2 * CONFIG.cols + 3,
+    3 * CONFIG.cols + 4,
+    4 * CONFIG.cols + 5
+  ]);
+
+  const DEBUG_WIN_POSITIONS = Object.freeze([
+    5 * CONFIG.cols + 0,
+    5 * CONFIG.cols + 1,
+    5 * CONFIG.cols + 2,
+    5 * CONFIG.cols + 3,
+    6 * CONFIG.cols + 0,
+    6 * CONFIG.cols + 1,
+    6 * CONFIG.cols + 2,
+    6 * CONFIG.cols + 3
+  ]);
+
+  function createDebugFeatureBoard(bonusCount, withWin = false) {
+    const keys = ['helmet', 'axe', 'hydrant', 'suit', 'radio', 'dalmatian', 'chief', 'extinguisher'];
+    const board = Array.from({ length: CONFIG.cells }, (_, index) => {
+      const row = Math.floor(index / CONFIG.cols);
+      const col = index % CONFIG.cols;
+      return keys[(row * 3 + col * 5) % keys.length];
+    });
+
+    if (withWin) {
+      DEBUG_WIN_POSITIONS.forEach(index => {
+        board[index] = 'axe';
+      });
+    }
+
+    DEBUG_BONUS_POSITIONS.slice(0, bonusCount).forEach(index => {
+      board[index] = BONUS_KEY;
+    });
+
+    return board;
+  }
+
+  function debugFullDropPlan(existingBonusCount = 0) {
+    const existing = new Set(DEBUG_BONUS_POSITIONS.slice(0, existingBonusCount));
+    const movements = new Map();
+
+    for (let index = 0; index < CONFIG.cells; index++) {
+      const stationaryBonus = existing.has(index);
+      movements.set(index, {
+        rows: stationaryBonus ? 0 : CONFIG.rows,
+        col: index % CONFIG.cols,
+        spawned: !stationaryBonus
+      });
+    }
+
+    return movements;
+  }
+
+  function debugWinResult() {
+    return {
+      remove: [...DEBUG_WIN_POSITIONS],
+      totalX: 0.15,
+      wins: [{
+        symbol: 'axe',
+        label: 'Fire Axe',
+        count: DEBUG_WIN_POSITIONS.length,
+        amountX: 0.15,
+        positions: [...DEBUG_WIN_POSITIONS]
+      }]
+    };
+  }
+
+  async function runDebugBonusDrop(count) {
+    if (state.busy) return;
+
+    state.busy = true;
+    state.forceAlarmOff = false;
+    updateUi();
+    el.debugDialog?.close();
+
+    state.board = createDebugFeatureBoard(count, false);
+    setMessage(`DEBUG · ${count} BONUS DROP`, 'LANDING TEST');
+    await renderBoardWithGravity(debugFullDropPlan(0), {
+      isCascade: true,
+      forceAnticipation: true
+    });
+
+    setMessage(`DEBUG · ${count} BONUS DROP COMPLETE`, 'LANDING TEST');
+    state.busy = false;
+    updateUi();
+  }
+
+  async function runDebugBonusChain(targetCount) {
+    if (state.busy) return;
+
+    state.busy = true;
+    state.forceAlarmOff = false;
+    updateUi();
+    el.debugDialog?.close();
+
+    for (let stage = 1; stage <= targetCount; stage++) {
+      const hasAnotherCascade = stage < targetCount;
+      state.board = createDebugFeatureBoard(stage, hasAnotherCascade);
+
+      setMessage(
+        `DEBUG CHAIN · ${stage} ALARM${stage === 1 ? '' : 'S'}`,
+        stage === 1 ? 'INITIAL DROP' : `CASCADE ${stage - 1}`
+      );
+
+      await renderBoardWithGravity(debugFullDropPlan(stage - 1), {
+        isCascade: stage > 1,
+        forceAnticipation: stage > 1
+      });
+
+      if (hasAnotherCascade) {
+        await sleep(300);
+        await animateWin(debugWinResult(), stage);
+        await sleep(180);
+      }
+    }
+
+    setMessage(`DEBUG CHAIN COMPLETE · ${targetCount} ALARM${targetCount === 1 ? '' : 'S'}`, 'TEST COMPLETE');
+    state.busy = false;
+    updateUi();
   }
 
   function setDebugAlarmCount(count) {
@@ -501,7 +780,7 @@
 
       const cascaded = cascadeBoard(state.board, result.remove);
       state.board = cascaded.board;
-      await renderBoardWithGravity(cascaded.movements);
+      await renderBoardWithGravity(cascaded.movements, { isCascade: true });
     }
 
     // Once the board is fully resolved, any non-bonus alarm result settles
@@ -607,6 +886,14 @@
   el.debugClose.addEventListener('click', () => el.debugDialog.close());
   document.querySelectorAll('[data-alarm-count]').forEach(button => {
     button.addEventListener('click', () => setDebugAlarmCount(Number(button.dataset.alarmCount)));
+  });
+
+  document.querySelectorAll('[data-bonus-drop-test]').forEach(button => {
+    button.addEventListener('click', () => runDebugBonusDrop(Number(button.dataset.bonusDropTest)));
+  });
+
+  document.querySelectorAll('[data-bonus-chain-test]').forEach(button => {
+    button.addEventListener('click', () => runDebugBonusChain(Number(button.dataset.bonusChainTest)));
   });
 
   renderPaytable();
